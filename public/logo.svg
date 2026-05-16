@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Background -->
+  <rect width="1024" height="1024" rx="220" fill="#0a0d14"/>
+  
+  <!-- Gradient definitions -->
+  <defs>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00b894;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#00d68f;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00d68f;stop-opacity:0.3" />
+      <stop offset="100%" style="stop-color:#00b894;stop-opacity:0.05" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="8" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background circle glow -->
+  <circle cx="512" cy="512" r="380" fill="url(#grad2)"/>
+
+  <!-- Bank building columns -->
+  <rect x="280" y="420" width="60" height="220" rx="8" fill="url(#grad1)" opacity="0.9"/>
+  <rect x="380" y="420" width="60" height="220" rx="8" fill="url(#grad1)" opacity="0.9"/>
+  <rect x="480" y="420" width="60" height="220" rx="8" fill="url(#grad1)" opacity="0.9"/>
+  <rect x="580" y="420" width="60" height="220" rx="8" fill="url(#grad1)" opacity="0.9"/>
+  <rect x="680" y="420" width="60" height="220" rx="8" fill="url(#grad1)" opacity="0.9"/>
+
+  <!-- Base -->
+  <rect x="240" y="630" width="544" height="40" rx="10" fill="url(#grad1)"/>
+
+  <!-- Roof triangle -->
+  <polygon points="512,200 760,400 264,400" fill="url(#grad1)" filter="url(#glow)"/>
+
+  <!-- Roof base line -->
+  <rect x="240" y="395" width="544" height="35" rx="6" fill="url(#grad1)"/>
+
+  <!-- Tenge symbol ₸ in center -->
+  <text x="512" y="590" 
+    font-family="Arial Black, sans-serif" 
+    font-size="160" 
+    font-weight="900"
+    fill="#0a0d14"
+    text-anchor="middle"
+    dominant-baseline="middle">₸</text>
+
+  <!-- App name -->
+  <text x="512" y="760" 
+    font-family="Arial, sans-serif" 
+    font-size="72" 
+    font-weight="800"
+    fill="url(#grad1)"
+    text-anchor="middle"
+    letter-spacing="6">QAZAQ</text>
+
+  <text x="512" y="840" 
+    font-family="Arial, sans-serif" 
+    font-size="52" 
+    font-weight="400"
+    fill="#ffffff"
+    text-anchor="middle"
+    opacity="0.6"
+    letter-spacing="12">BANK</text>
+</svg>
