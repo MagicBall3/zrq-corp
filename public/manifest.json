@@ -1,0 +1,18 @@
+{
+  "name": "QazaqBank",
+  "short_name": "QazaqBank",
+  "description": "Виртуальный банк на тенге",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0d14",
+  "theme_color": "#00d68f",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
