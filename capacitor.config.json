@@ -1,0 +1,8 @@
+{
+  "appId": "com.qazaqbank.app",
+  "appName": "QazaqBank",
+  "webDir": "build",
+  "server": {
+    "androidScheme": "https"
+  }
+}
