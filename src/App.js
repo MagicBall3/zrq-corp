@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 
 // ─── Supabase Config ───────────────────────────────────────────────────────────
 const SUPABASE_URL = "https://gvorwmwsurbkdlozxnel.supabase.co";
@@ -26,6 +26,149 @@ const fmt = (n) =>
 const nowStr = () => new Date().toLocaleString("ru-RU");
 const genId = () => Math.random().toString(36).slice(2, 10).toUpperCase();
 
+// ─── PIN Screen ───────────────────────────────────────────────────────────────
+function PinScreen({ mode, onSuccess, onCancel, username }) {
+  const [pin, setPin] = useState([]);
+  const [confirmPin, setConfirmPin] = useState([]);
+  const [step, setStep] = useState("enter"); // enter | confirm
+  const [error, setError] = useState("");
+  const [shake, setShake] = useState(false);
+
+  const triggerShake = () => {
+    setShake(true);
+    setTimeout(() => setShake(false), 500);
+  };
+
+  const handleDigit = (d) => {
+    if (pin.length >= 4) return;
+    const newPin = [...pin, d];
+    setPin(newPin);
+    setError("");
+
+    if (newPin.length === 4) {
+      setTimeout(() => {
+        if (mode === "set") {
+          if (step === "enter") {
+            setConfirmPin(newPin);
+            setStep("confirm");
+            setPin([]);
+          } else {
+            if (newPin.join("") === confirmPin.join("")) {
+              localStorage.setItem(`pin_${username}`, newPin.join(""));
+              onSuccess();
+            } else {
+              setError("PIN не совпадает. Попробуй снова");
+              triggerShake();
+              setPin([]);
+              setStep("enter");
+              setConfirmPin([]);
+            }
+          }
+        } else {
+          const saved = localStorage.getItem(`pin_${username}`);
+          if (newPin.join("") === saved) {
+            onSuccess();
+          } else {
+            setError("Неверный PIN");
+            triggerShake();
+            setPin([]);
+          }
+        }
+      }, 150);
+    }
+  };
+
+  const handleDelete = () => setPin(p => p.slice(0, -1));
+
+  const handleBiometric = async () => {
+    if (!window.PublicKeyCredential) return;
+    try {
+      const challenge = new Uint8Array(32);
+      window.crypto.getRandomValues(challenge);
+      await navigator.credentials.get({
+        publicKey: {
+          challenge,
+          timeout: 60000,
+          userVerification: "required",
+          rpId: window.location.hostname
+        }
+      });
+      onSuccess();
+    } catch (e) {
+      if (e.name !== "NotAllowedError") setError("Биометрия недоступна");
+    }
+  };
+
+  const hasBiometric = !!window.PublicKeyCredential;
+  const hasSavedPin = !!localStorage.getItem(`pin_${username}`);
+
+  const dots = [0, 1, 2, 3];
+  const title = mode === "set"
+    ? step === "enter" ? "Создайте PIN-код" : "Повторите PIN-код"
+    : "Введите PIN-код";
+
+  return (
+    <div style={PS.root}>
+      <div style={PS.card}>
+        <div style={PS.logo}>⛁</div>
+        <div style={PS.title}>QAZAQBANK</div>
+        {username && <div style={PS.subtitle}>@{username}</div>}
+        <div style={PS.pinTitle}>{title}</div>
+
+        {/* Dots */}
+        <div style={{ ...PS.dots, ...(shake ? PS.shake : {}) }}>
+          {dots.map(i => (
+            <div key={i} style={{ ...PS.dot, ...(i < pin.length ? PS.dotFilled : {}) }} />
+          ))}
+        </div>
+
+        {error && <div style={PS.error}>{error}</div>}
+
+        {/* Numpad */}
+        <div style={PS.numpad}>
+          {[1,2,3,4,5,6,7,8,9].map(d => (
+            <button key={d} style={PS.numBtn} onClick={() => handleDigit(d)}>
+              {d}
+            </button>
+          ))}
+          {/* Biometric or empty */}
+          {mode === "check" && hasBiometric ? (
+            <button style={PS.numBtn} onClick={handleBiometric}>
+              <span style={{ fontSize: 24 }}>⬡</span>
+            </button>
+          ) : (
+            <div style={PS.numBtn} />
+          )}
+          <button style={PS.numBtn} onClick={() => handleDigit(0)}>0</button>
+          <button style={{ ...PS.numBtn, color: "#ff6b6b" }} onClick={handleDelete}>⌫</button>
+        </div>
+
+        {onCancel && (
+          <button style={PS.cancelBtn} onClick={onCancel}>Выйти из аккаунта</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const PS = {
+  root: { position: "fixed", inset: 0, background: "#0a0d14", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 },
+  card: { width: "100%", maxWidth: 360, padding: "40px 24px", display: "flex", flexDirection: "column", alignItems: "center" },
+  logo: { fontSize: 48, marginBottom: 8 },
+  title: { fontSize: 18, fontWeight: 800, letterSpacing: 3, color: "#00d68f", marginBottom: 4 },
+  subtitle: { fontSize: 13, color: "#5a6a80", marginBottom: 32 },
+  pinTitle: { fontSize: 16, color: "#c8d0dc", marginBottom: 28, fontWeight: 500 },
+  dots: { display: "flex", gap: 20, marginBottom: 16 },
+  dot: { width: 18, height: 18, borderRadius: "50%", border: "2px solid #2a3a4a", background: "transparent", transition: "all .15s" },
+  dotFilled: { background: "#00d68f", border: "2px solid #00d68f", transform: "scale(1.1)" },
+  shake: { animation: "shake 0.4s ease" },
+  error: { color: "#ff6b6b", fontSize: 13, marginBottom: 16, textAlign: "center" },
+  numpad: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, width: "100%", maxWidth: 280, marginTop: 16 },
+  numBtn: { width: "100%", aspectRatio: "1", borderRadius: "50%", background: "#111827", border: "1px solid #1f2d44", color: "#e8eaf0", fontSize: 24, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" },
+  cancelBtn: { marginTop: 32, background: "none", border: "none", color: "#ff6b6b", fontSize: 14, cursor: "pointer" },
+};
+
+// ─── Main App ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [session, setSession] = useState(() => {
     try { return JSON.parse(localStorage.getItem("qb_session")); } catch { return null; }
@@ -44,6 +187,10 @@ export default function App() {
   const [clickCount, setClickCount] = useState(0);
   const [earnCooldown, setEarnCooldown] = useState(false);
   const [clickAnim, setClickAnim] = useState(false);
+
+  // PIN states
+  const [pinState, setPinState] = useState("idle"); // idle | check | set | done
+  const [appLocked, setAppLocked] = useState(false);
 
   // Auth forms
   const [authPage, setAuthPage] = useState("login");
@@ -73,47 +220,56 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (session?.username) loadUser(session.username);
+    if (session?.username) {
+      loadUser(session.username).then(() => {
+        // Check if PIN is set
+        const hasPin = !!localStorage.getItem(`pin_${session.username}`);
+        if (hasPin) {
+          setPinState("check");
+        } else {
+          setPinState("set");
+        }
+      });
+    }
   }, [session, loadUser]);
+
+  // Lock app when hidden
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden && session?.username && pinState === "done") {
+        setPinState("check");
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [session, pinState]);
 
   const navigate = (p) => { setPage(p); setDrawerOpen(false); };
 
-  // Load data based on page
   useEffect(() => {
-    if (!user) return;
+    if (!user || pinState !== "done") return;
     if (page === "home") loadTx(user.username, 5);
     if (page === "statement") loadTx(user.username, 100);
     if (page === "credit") loadCredits();
     if (page === "deposit") loadDeposits();
     if (page === "admin" && user.is_admin) loadAllUsers();
-  }, [page, user]);
+  }, [page, user, pinState]);
 
   const loadTx = async (username, limit = 50) => {
-    try {
-      const txs = await sb(`transactions?username=eq.${username}&order=created_at.desc&limit=${limit}`);
-      setTxList(txs);
-    } catch (e) { console.error(e); }
+    try { const txs = await sb(`transactions?username=eq.${username}&order=created_at.desc&limit=${limit}`); setTxList(txs); }
+    catch (e) { console.error(e); }
   };
-
   const loadCredits = async () => {
-    try {
-      const cr = await sb(`credits?username=eq.${user.username}&active=eq.true&order=created_at.desc`);
-      setCredits(cr);
-    } catch (e) { console.error(e); }
+    try { const cr = await sb(`credits?username=eq.${user.username}&active=eq.true&order=created_at.desc`); setCredits(cr); }
+    catch (e) { console.error(e); }
   };
-
   const loadDeposits = async () => {
-    try {
-      const dep = await sb(`deposits?username=eq.${user.username}&active=eq.true&order=created_at.desc`);
-      setDeposits(dep);
-    } catch (e) { console.error(e); }
+    try { const dep = await sb(`deposits?username=eq.${user.username}&active=eq.true&order=created_at.desc`); setDeposits(dep); }
+    catch (e) { console.error(e); }
   };
-
   const loadAllUsers = async () => {
-    try {
-      const users = await sb("users?select=*&order=created_at.desc");
-      setAllUsers(users);
-    } catch (e) { console.error(e); }
+    try { const users = await sb("users?select=*&order=created_at.desc"); setAllUsers(users); }
+    catch (e) { console.error(e); }
   };
 
   // ── AUTH ──────────────────────────────────────────────────────────────────
@@ -126,18 +282,10 @@ export default function App() {
       const exists = await sb(`users?username=eq.${username}&select=id`);
       if (exists.length > 0) { setLoading(false); return setAuthError("Логин занят"); }
       const bonus = Math.floor(Math.random() * 40001) + 10000;
-      const isAdmin = username === ADMIN_USERNAME;
       const cardNumber = "4" + Array(15).fill(0).map(() => Math.floor(Math.random() * 10)).join("");
-      await sb("users", {
-        method: "POST",
-        body: JSON.stringify({ username, password, fullname, birthdate, balance: bonus, card_number: cardNumber, is_admin: isAdmin }),
-      });
-      await sb("transactions", {
-        method: "POST",
-        body: JSON.stringify({ id: genId(), username, type: "bonus", amount: bonus, description: "🎉 Приветственный бонус", date: nowStr() }),
-      });
-      setLoading(false);
-      setAuthError("");
+      await sb("users", { method: "POST", body: JSON.stringify({ username, password, fullname, birthdate, balance: bonus, card_number: cardNumber, is_admin: username === ADMIN_USERNAME }) });
+      await sb("transactions", { method: "POST", body: JSON.stringify({ id: genId(), username, type: "bonus", amount: bonus, description: "🎉 Приветственный бонус", date: nowStr() }) });
+      setLoading(false); setAuthError("");
       notify(`Аккаунт создан! Бонус ${fmt(bonus)}! 🎉`);
       setAuthPage("login");
     } catch (e) { setLoading(false); setAuthError(e.message); }
@@ -151,7 +299,6 @@ export default function App() {
       const [u] = await sb(`users?username=eq.${username}&select=*`);
       if (!u) { setLoading(false); return setAuthError("Пользователь не найден"); }
       if (u.password !== password) { setLoading(false); return setAuthError("Неверный пароль"); }
-      // Birthday check
       const today = new Date();
       const bday = new Date(u.birthdate);
       if (bday.getDate() === today.getDate() && bday.getMonth() === today.getMonth()) {
@@ -171,6 +318,9 @@ export default function App() {
       setPage("home");
       setAuthError("");
       setLoading(false);
+      // PIN setup
+      const hasPin = !!localStorage.getItem(`pin_${username}`);
+      setPinState(hasPin ? "check" : "set");
     } catch (e) { setLoading(false); setAuthError(e.message); }
   };
 
@@ -178,7 +328,7 @@ export default function App() {
     localStorage.removeItem("qb_session");
     setSession(null); setUser(null); setPage("home");
     setAuthForm({ username: "", password: "", fullname: "", birthdate: "" });
-    setDrawerOpen(false);
+    setDrawerOpen(false); setPinState("idle");
   };
 
   // ── EARN ──────────────────────────────────────────────────────────────────
@@ -188,8 +338,7 @@ export default function App() {
       await sb(`users?username=eq.${user.username}`, { method: "PATCH", body: JSON.stringify({ balance: user.balance + 1 }) });
       await sb("transactions", { method: "POST", prefer: "return=minimal", body: JSON.stringify({ id: genId(), username: user.username, type: "earn", amount: 1, description: "💰 Клик-заработок", date: nowStr() }) });
       setUser(u => ({ ...u, balance: u.balance + 1 }));
-      setClickAnim(true);
-      setTimeout(() => setClickAnim(false), 200);
+      setClickAnim(true); setTimeout(() => setClickAnim(false), 200);
       setClickCount(c => {
         const next = c + 1;
         if (next >= 100) { setEarnCooldown(true); setTimeout(() => { setEarnCooldown(false); setClickCount(0); }, 30000); }
@@ -218,18 +367,14 @@ export default function App() {
         { id: txId + "R", username: to, type: "in", amount: amt, description: `↙ Перевод ← ${user.fullname}${note ? ": " + note : ""}`, date: nowStr() },
       ]) });
       setUser(u => ({ ...u, balance: u.balance - amt }));
-      setTfForm({ to: "", amount: "", note: "" });
-      setTfError("");
-      setLoading(false);
-      notify(`Переведено ${fmt(amt)} → ${recipient.fullname}`);
-      navigate("home");
+      setTfForm({ to: "", amount: "", note: "" }); setTfError("");
+      setLoading(false); notify(`Переведено ${fmt(amt)} → ${recipient.fullname}`); navigate("home");
     } catch (e) { setLoading(false); setTfError(e.message); }
   };
 
   // ── CREDIT ────────────────────────────────────────────────────────────────
   const handleCredit = async () => {
-    const amt = parseFloat(crForm.amount);
-    const months = parseInt(crForm.months);
+    const amt = parseFloat(crForm.amount); const months = parseInt(crForm.months);
     if (!amt || amt <= 0) return setCrError("Введите сумму");
     if (amt > 5000000) return setCrError("Максимум 5 000 000 ₸");
     setLoading(true);
@@ -241,10 +386,8 @@ export default function App() {
       await sb(`users?username=eq.${user.username}`, { method: "PATCH", body: JSON.stringify({ balance: user.balance + amt }) });
       await sb("transactions", { method: "POST", prefer: "return=minimal", body: JSON.stringify({ id: genId(), username: user.username, type: "credit", amount: amt, description: `💳 Кредит на ${months} мес.`, date: nowStr() }) });
       setUser(u => ({ ...u, balance: u.balance + amt }));
-      setCrForm({ amount: "", months: "12" }); setCrError("");
-      setLoading(false);
-      notify(`Кредит одобрен! ${fmt(amt)} зачислено`);
-      loadCredits();
+      setCrForm({ amount: "", months: "12" }); setCrError(""); setLoading(false);
+      notify(`Кредит одобрен! ${fmt(amt)} зачислено`); loadCredits();
     } catch (e) { setLoading(false); setCrError(e.message); }
   };
 
@@ -264,8 +407,7 @@ export default function App() {
 
   // ── DEPOSIT ───────────────────────────────────────────────────────────────
   const handleDeposit = async () => {
-    const amt = parseFloat(depForm.amount);
-    const months = parseInt(depForm.months);
+    const amt = parseFloat(depForm.amount); const months = parseInt(depForm.months);
     if (!amt || amt <= 0) return setDepError("Введите сумму");
     if (amt > user.balance) return setDepError("Недостаточно средств");
     if (amt < 1000) return setDepError("Минимум 1 000 ₸");
@@ -278,8 +420,8 @@ export default function App() {
       await sb(`users?username=eq.${user.username}`, { method: "PATCH", body: JSON.stringify({ balance: user.balance - amt }) });
       await sb("transactions", { method: "POST", prefer: "return=minimal", body: JSON.stringify({ id: genId(), username: user.username, type: "out", amount: -amt, description: `🏦 Вклад на ${months} мес.`, date: nowStr() }) });
       setUser(u => ({ ...u, balance: u.balance - amt }));
-      setDepForm({ amount: "", months: "6" }); setDepError("");
-      setLoading(false); notify(`Вклад открыт! Доход: +${fmt(profit)}`); loadDeposits();
+      setDepForm({ amount: "", months: "6" }); setDepError(""); setLoading(false);
+      notify(`Вклад открыт! Доход: +${fmt(profit)}`); loadDeposits();
     } catch (e) { setLoading(false); setDepError(e.message); }
   };
 
@@ -317,7 +459,9 @@ export default function App() {
 
   const isAdmin = user?.is_admin || user?.username === ADMIN_USERNAME;
 
-  // ── AUTH SCREEN ───────────────────────────────────────────────────────────
+  // ── SCREENS ───────────────────────────────────────────────────────────────
+
+  // Auth screen
   if (!session || !user) {
     return (
       <div style={S.root}>
@@ -346,6 +490,14 @@ export default function App() {
     );
   }
 
+  // PIN screens
+  if (pinState === "set") {
+    return <PinScreen mode="set" username={session.username} onSuccess={() => setPinState("done")} onCancel={handleLogout} />;
+  }
+  if (pinState === "check") {
+    return <PinScreen mode="check" username={session.username} onSuccess={() => setPinState("done")} onCancel={handleLogout} />;
+  }
+
   // ── MAIN APP ──────────────────────────────────────────────────────────────
   const bottomNav = [
     ["home", "🏠", "Главная"],
@@ -360,7 +512,7 @@ export default function App() {
       {notification && <Notif n={notification} />}
       {loading && <div style={S.loadBar} />}
 
-      {/* Drawer overlay */}
+      {/* Drawer */}
       {drawerOpen && (
         <div style={S.overlay} onClick={() => setDrawerOpen(false)}>
           <div style={S.drawer} onClick={e => e.stopPropagation()}>
@@ -383,13 +535,16 @@ export default function App() {
                 <span style={S.drawerBtnIcon}>{icon}</span> {label}
               </button>
             ))}
+            <button style={S.drawerBtn} onClick={() => { setPinState("set"); setDrawerOpen(false); }}>
+              <span style={S.drawerBtnIcon}>🔐</span> Изменить PIN
+            </button>
             <div style={S.drawerDivider} />
             <button style={S.drawerBtnLogout} onClick={handleLogout}>⎋ Выйти из аккаунта</button>
           </div>
         </div>
       )}
 
-      {/* Top header */}
+      {/* Top bar */}
       <div style={S.topBar}>
         <div style={S.topLogo}>⛁ QAZAQBANK</div>
         <button style={S.menuBtn} onClick={() => setDrawerOpen(true)}>
@@ -397,20 +552,16 @@ export default function App() {
         </button>
       </div>
 
-      {/* Page content */}
+      {/* Content */}
       <div style={S.pageWrap}>
 
-        {/* HOME */}
         {page === "home" && (
           <div>
             <h2 style={S.greeting}>Привет, {user.fullname.split(" ")[0]}! 👋</h2>
             <div style={S.balCard}>
               <div style={S.balLabel}>ОСНОВНОЙ СЧЁТ</div>
               <div style={S.balAmt}>{fmt(user.balance)}</div>
-              <div style={S.balRow}>
-                <span>**** **** **** {user.card_number?.slice(-4)}</span>
-                <span>VISA</span>
-              </div>
+              <div style={S.balRow}><span>**** **** **** {user.card_number?.slice(-4)}</span><span>VISA</span></div>
             </div>
             <div style={S.quickRow}>
               {[["transfer","↗️","Перевод"],["credit","💳","Кредит"],["deposit","🏦","Вклад"],["statement","📋","Выписка"]].map(([p,icon,label])=>(
@@ -441,7 +592,6 @@ export default function App() {
           </div>
         )}
 
-        {/* TRANSFER */}
         {page === "transfer" && (
           <div>
             <div style={S.pageTitle}>↗️ Перевод денег</div>
@@ -459,14 +609,10 @@ export default function App() {
           </div>
         )}
 
-        {/* STATEMENT */}
         {page === "statement" && (
           <div>
             <div style={S.pageTitle}>📋 Выписка</div>
-            <div style={S.stmtBar}>
-              <span>Операций: {txList.length}</span>
-              <span style={{ color: "#00d68f", fontWeight: 700 }}>{fmt(user.balance)}</span>
-            </div>
+            <div style={S.stmtBar}><span>Операций: {txList.length}</span><span style={{ color: "#00d68f", fontWeight: 700 }}>{fmt(user.balance)}</span></div>
             <div style={S.txCard}>
               {txList.length === 0 && <p style={S.empty}>Операций нет</p>}
               {txList.map(tx => <TxRow key={tx.id} tx={tx} full />)}
@@ -474,20 +620,16 @@ export default function App() {
           </div>
         )}
 
-        {/* CREDIT */}
         {page === "credit" && (
           <div>
             <div style={S.pageTitle}>💳 Кредиты</div>
             {credits.map(c => (
               <div key={c.id} style={S.creditCard}>
-                <div style={S.cardTopRow}>
-                  <span style={S.cid}>#{c.id}</span>
-                  <span style={S.badge}>Активный</span>
-                </div>
+                <div style={S.cardTopRow}><span style={S.cid}>#{c.id}</span><span style={S.badge}>Активный</span></div>
                 <div style={S.bigAmt}>{fmt(c.amount)}</div>
                 <div style={S.cinfo}><span>Остаток: <b style={{ color: "#ff6b6b" }}>{fmt(c.remaining)}</b></span><span>Взнос: {fmt(c.monthly)}/мес</span></div>
                 <div style={S.cinfo}><span>Срок: {c.months} мес.</span><span>Выплат: {c.paid}</span></div>
-                <button style={S.btnRed} onClick={() => handlePayCredit(c)}>Погасить взнос • {fmt(Math.min(c.monthly, c.remaining))}</button>
+                <button style={S.btnRed} onClick={() => handlePayCredit(c)}>Погасить • {fmt(Math.min(c.monthly, c.remaining))}</button>
               </div>
             ))}
             <div style={S.card}>
@@ -498,27 +640,19 @@ export default function App() {
               <select style={S.sel} value={crForm.months} onChange={e => setCrForm({ ...crForm, months: e.target.value })}>
                 {[6, 12, 24, 36, 60].map(m => <option key={m} value={m}>{m} месяцев</option>)}
               </select>
-              {crForm.amount > 0 && (
-                <div style={S.calcBox}>
-                  Ставка: <b>18%</b> • Платёж: <b>{fmt(parseFloat(crForm.amount) * (0.18 / 12) / (1 - Math.pow(1 + 0.18 / 12, -parseInt(crForm.months))))}</b>/мес
-                </div>
-              )}
+              {crForm.amount > 0 && <div style={S.calcBox}>Ставка: <b>18%</b> • Платёж: <b>{fmt(parseFloat(crForm.amount) * (0.18 / 12) / (1 - Math.pow(1 + 0.18 / 12, -parseInt(crForm.months))))}</b>/мес</div>}
               {crError && <p style={S.err}>{crError}</p>}
               <button style={S.btnPrimary} onClick={handleCredit} disabled={loading}>Оформить кредит</button>
             </div>
           </div>
         )}
 
-        {/* DEPOSIT */}
         {page === "deposit" && (
           <div>
             <div style={S.pageTitle}>🏦 Вклады</div>
             {deposits.map(d => (
               <div key={d.id} style={{ ...S.creditCard, borderColor: "#00d68f33" }}>
-                <div style={S.cardTopRow}>
-                  <span style={S.cid}>#{d.id}</span>
-                  <span style={{ ...S.badge, background: "#00d68f22", color: "#00d68f" }}>Активный</span>
-                </div>
+                <div style={S.cardTopRow}><span style={S.cid}>#{d.id}</span><span style={{ ...S.badge, background: "#00d68f22", color: "#00d68f" }}>Активный</span></div>
                 <div style={S.bigAmt}>{fmt(d.amount)}</div>
                 <div style={S.cinfo}><span>Ставка: <b style={{ color: "#00d68f" }}>{d.rate}%</b></span><span>Срок: {d.months} мес.</span></div>
                 <div style={S.cinfo}><span>Доход: <b style={{ color: "#00d68f" }}>+{fmt(d.profit)}</b></span></div>
@@ -536,11 +670,7 @@ export default function App() {
                 <option value="12">12 мес. — 15%</option>
                 <option value="24">24 мес. — 18%</option>
               </select>
-              {depForm.amount > 0 && (
-                <div style={S.calcBox}>
-                  Доход: <b style={{ color: "#00d68f" }}>+{fmt(parseFloat(depForm.amount || 0) * (depForm.months <= 3 ? 0.10 : depForm.months <= 6 ? 0.12 : depForm.months <= 12 ? 0.15 : 0.18) * parseInt(depForm.months) / 12)}</b>
-                </div>
-              )}
+              {depForm.amount > 0 && <div style={S.calcBox}>Доход: <b style={{ color: "#00d68f" }}>+{fmt(parseFloat(depForm.amount || 0) * (depForm.months <= 3 ? 0.10 : depForm.months <= 6 ? 0.12 : depForm.months <= 12 ? 0.15 : 0.18) * parseInt(depForm.months) / 12)}</b></div>}
               <p style={S.hint}>Доступно: <b style={{ color: "#00d68f" }}>{fmt(user.balance)}</b></p>
               {depError && <p style={S.err}>{depError}</p>}
               <button style={S.btnPrimary} onClick={handleDeposit} disabled={loading}>Открыть вклад</button>
@@ -548,7 +678,6 @@ export default function App() {
           </div>
         )}
 
-        {/* CARDS */}
         {page === "cards" && (
           <div>
             <div style={S.pageTitle}>💠 Мои карты</div>
@@ -571,7 +700,6 @@ export default function App() {
           </div>
         )}
 
-        {/* ADMIN */}
         {page === "admin" && isAdmin && (
           <div>
             <div style={S.pageTitle}>👑 Админ панель</div>
@@ -606,7 +734,7 @@ export default function App() {
         <div style={{ height: 90 }} />
       </div>
 
-      {/* Bottom navigation */}
+      {/* Bottom nav */}
       <div style={S.bottomNav}>
         {bottomNav.map(([p, icon, label]) => (
           <button key={p} style={{ ...S.bottomBtn, ...(page === p ? S.bottomBtnActive : {}) }} onClick={() => navigate(p)}>
@@ -616,7 +744,6 @@ export default function App() {
         ))}
       </div>
 
-      {/* Admin user tx modal */}
       {selectedUser && (
         <div style={S.modalOverlay}>
           <div style={S.modal}>
@@ -648,11 +775,9 @@ function TxRow({ tx, full }) {
     </div>
   );
 }
-
 function Label({ children }) {
   return <div style={{ fontSize: 11, color: "#5a6a80", marginBottom: 6, marginTop: 14, textTransform: "uppercase", letterSpacing: 1 }}>{children}</div>;
 }
-
 function Notif({ n }) {
   return <div style={{ ...S.notif, background: n.type === "error" ? "#ff4d4d" : "#00d68f" }}>{n.msg}</div>;
 }
@@ -661,8 +786,6 @@ const S = {
   root: { minHeight: "100vh", background: "#0a0d14", color: "#e8eaf0", fontFamily: "'Segoe UI', system-ui, sans-serif", maxWidth: 480, margin: "0 auto", position: "relative" },
   notif: { position: "fixed", top: 16, left: "50%", transform: "translateX(-50%)", zIndex: 9999, padding: "12px 24px", borderRadius: 30, color: "#fff", fontWeight: 600, fontSize: 14, boxShadow: "0 4px 20px #0008", whiteSpace: "nowrap" },
   loadBar: { position: "fixed", top: 0, left: 0, right: 0, height: 3, background: "linear-gradient(90deg,#00b894,#00d68f)", zIndex: 9999 },
-
-  // Auth
   authWrap: { display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", padding: 24 },
   authCard: { background: "#111827", border: "1px solid #1f2d44", borderRadius: 24, padding: "40px 28px", width: "100%", boxShadow: "0 20px 80px #000a" },
   logo: { display: "flex", alignItems: "center", gap: 10, marginBottom: 6 },
@@ -673,14 +796,10 @@ const S = {
   err: { color: "#ff6b6b", fontSize: 13, margin: "4px 0 10px" },
   btnPrimary: { width: "100%", padding: 15, background: "linear-gradient(135deg,#00b894,#00d68f)", border: "none", borderRadius: 14, color: "#000", fontSize: 16, fontWeight: 700, cursor: "pointer", marginBottom: 10, marginTop: 6 },
   btnGhost: { width: "100%", padding: 13, background: "transparent", border: "1px solid #1f2d44", borderRadius: 14, color: "#5a6a80", fontSize: 14, cursor: "pointer" },
-
-  // Top bar
   topBar: { position: "fixed", top: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 480, background: "#0d1117", borderBottom: "1px solid #1f2d44", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 20px", zIndex: 100, boxSizing: "border-box" },
   topLogo: { fontSize: 14, fontWeight: 800, letterSpacing: 2, color: "#00d68f" },
   menuBtn: { background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex", flexDirection: "column", gap: 5 },
   burger: { width: 24, height: 2, background: "#e8eaf0", borderRadius: 2 },
-
-  // Drawer
   overlay: { position: "fixed", inset: 0, background: "#000a", zIndex: 200 },
   drawer: { position: "absolute", right: 0, top: 0, bottom: 0, width: 280, background: "#0d1117", borderLeft: "1px solid #1f2d44", padding: 24, display: "flex", flexDirection: "column", gap: 6 },
   drawerHeader: { display: "flex", gap: 14, alignItems: "center", marginBottom: 8 },
@@ -689,30 +808,22 @@ const S = {
   drawerLogin: { fontSize: 12, color: "#5a6a80" },
   drawerBal: { fontSize: 16, fontWeight: 800, color: "#00d68f", marginTop: 4 },
   drawerDivider: { height: 1, background: "#1f2d44", margin: "10px 0" },
-  drawerBtn: { display: "flex", alignItems: "center", gap: 12, padding: "13px 14px", borderRadius: 12, border: "none", background: "transparent", color: "#c8d0dc", fontSize: 15, cursor: "pointer", textAlign: "left" },
+  drawerBtn: { display: "flex", alignItems: "center", gap: 12, padding: "13px 14px", borderRadius: 12, border: "none", background: "transparent", color: "#c8d0dc", fontSize: 15, cursor: "pointer" },
   drawerBtnIcon: { fontSize: 20 },
   drawerBtnLogout: { display: "flex", alignItems: "center", gap: 12, padding: "13px 14px", borderRadius: 12, border: "none", background: "transparent", color: "#ff6b6b", fontSize: 15, cursor: "pointer", marginTop: "auto" },
   adminBadge: { background: "linear-gradient(135deg,#f9ca24,#f0932b)", color: "#000", fontSize: 9, fontWeight: 800, padding: "2px 6px", borderRadius: 20, marginLeft: 4 },
-
-  // Page
-  pageWrap: { paddingTop: 70, paddingBottom: 20, padding: "70px 16px 20px" },
+  pageWrap: { paddingTop: 70, padding: "70px 16px 20px" },
   pageTitle: { fontSize: 22, fontWeight: 800, marginBottom: 18, marginTop: 8 },
   greeting: { fontSize: 20, fontWeight: 700, margin: "8px 0 16px" },
   secTitle: { fontSize: 16, fontWeight: 700, margin: "16px 0 10px", color: "#c8d0dc" },
-
-  // Balance card
   balCard: { background: "linear-gradient(135deg,#0a2a1e,#0d3326)", border: "1px solid #00d68f33", borderRadius: 20, padding: "24px 22px", marginBottom: 18 },
   balLabel: { fontSize: 10, color: "#00d68f88", letterSpacing: 2, textTransform: "uppercase", marginBottom: 8 },
   balAmt: { fontSize: 36, fontWeight: 900, color: "#00d68f", marginBottom: 14 },
   balRow: { display: "flex", justifyContent: "space-between", color: "#5a8a70", fontSize: 13 },
-
-  // Quick actions
   quickRow: { display: "flex", gap: 10, marginBottom: 18 },
   quickBtn: { flex: 1, background: "#111827", border: "1px solid #1f2d44", borderRadius: 14, padding: "14px 4px", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, cursor: "pointer" },
   quickIcon: { fontSize: 22 },
   quickLabel: { fontSize: 11, color: "#8899aa" },
-
-  // Earn
   earnCard: { background: "#111827", border: "1px solid #1f2d44", borderRadius: 18, padding: 18, marginBottom: 18 },
   earnTop: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },
   earnDesc: { fontSize: 12, color: "#5a6a80", marginTop: 4 },
@@ -720,8 +831,6 @@ const S = {
   earnMax: { fontSize: 14, color: "#5a6a80" },
   earnBtn: { width: "100%", padding: "15px", background: "linear-gradient(135deg,#f9ca24,#f0932b)", border: "none", borderRadius: 14, fontSize: 16, fontWeight: 800, cursor: "pointer", color: "#000", transition: "transform .1s" },
   earnOff: { background: "#1f2d44", color: "#5a6a80", cursor: "not-allowed" },
-
-  // Transactions
   txCard: { background: "#111827", border: "1px solid #1f2d44", borderRadius: 16, overflow: "hidden", marginBottom: 16 },
   txRow: { display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: "1px solid #1a2130" },
   txBadge: { width: 36, height: 36, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 900, flexShrink: 0 },
@@ -730,16 +839,12 @@ const S = {
   txDate: { fontSize: 11, color: "#5a6a80", marginTop: 2 },
   txAmt: { fontSize: 13, fontWeight: 700, flexShrink: 0 },
   empty: { color: "#5a6a80", padding: "20px", textAlign: "center", margin: 0 },
-
-  // Form
   card: { background: "#111827", border: "1px solid #1f2d44", borderRadius: 18, padding: 20, marginBottom: 16 },
   inp2: { width: "100%", padding: "13px 14px", background: "#0d1929", border: "1px solid #1f2d44", borderRadius: 10, color: "#e8eaf0", fontSize: 15, boxSizing: "border-box", outline: "none", marginBottom: 4 },
   sel: { width: "100%", padding: "13px 14px", background: "#0d1929", border: "1px solid #1f2d44", borderRadius: 10, color: "#e8eaf0", fontSize: 15, outline: "none" },
   hint: { fontSize: 13, color: "#5a6a80", margin: "10px 0 4px" },
   calcBox: { background: "#0d1929", border: "1px solid #1f2d44", borderRadius: 10, padding: "11px 14px", margin: "10px 0", fontSize: 14, color: "#8899aa" },
   stmtBar: { display: "flex", justifyContent: "space-between", color: "#5a6a80", fontSize: 13, marginBottom: 10 },
-
-  // Credit/deposit cards
   creditCard: { background: "#111827", border: "1px solid #ff6b6b33", borderRadius: 16, padding: 18, marginBottom: 14 },
   cardTopRow: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
   cid: { fontSize: 11, color: "#5a6a80", fontFamily: "monospace" },
@@ -748,8 +853,6 @@ const S = {
   cinfo: { display: "flex", justifyContent: "space-between", fontSize: 13, color: "#8899aa", marginBottom: 5 },
   btnRed: { width: "100%", padding: "11px", background: "#ff6b6b22", border: "1px solid #ff6b6b44", borderRadius: 10, color: "#ff6b6b", fontSize: 14, cursor: "pointer", marginTop: 10 },
   btnGreen: { width: "100%", padding: "11px", background: "#00d68f22", border: "1px solid #00d68f44", borderRadius: 10, color: "#00d68f", fontSize: 14, cursor: "pointer", marginTop: 10 },
-
-  // Virtual card
   virtualCard: { background: "linear-gradient(135deg,#1a1a2e,#16213e,#0f3460)", borderRadius: 20, padding: "24px 22px", marginBottom: 18, border: "1px solid #ffffff11" },
   vcChip: { fontSize: 20, color: "#f9ca24", marginBottom: 16 },
   vcNum: { fontSize: 18, fontFamily: "monospace", letterSpacing: 3, color: "#fff", marginBottom: 20 },
@@ -757,15 +860,11 @@ const S = {
   vcLbl: { fontSize: 9, color: "#ffffff66", textTransform: "uppercase", letterSpacing: 1 },
   vcName: { fontSize: 13, color: "#fff", fontWeight: 600 },
   vcVisa: { marginLeft: "auto", fontSize: 18, fontStyle: "italic", fontWeight: 900, color: "#fff" },
-
-  // Bottom nav
   bottomNav: { position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 480, background: "#0d1117", borderTop: "1px solid #1f2d44", display: "flex", zIndex: 100, boxSizing: "border-box" },
   bottomBtn: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "10px 4px 14px", background: "none", border: "none", cursor: "pointer" },
   bottomBtnActive: { borderTop: "2px solid #00d68f" },
   bottomIcon: { fontSize: 20 },
   bottomLabel: { fontSize: 10, color: "#5a6a80" },
-
-  // Modal
   modalOverlay: { position: "fixed", inset: 0, background: "#000c", zIndex: 300, display: "flex", alignItems: "flex-end" },
   modal: { background: "#111827", border: "1px solid #1f2d44", borderRadius: "20px 20px 0 0", padding: 24, width: "100%", maxHeight: "80vh", overflowY: "auto" },
 };
