@@ -677,7 +677,18 @@ export default function App() {
                 <div style={S.bigAmt}>{fmt(d.amount)}</div>
                 <div style={S.cinfo}><span>Ставка: <b style={{ color: "#00d68f" }}>{d.rate}%</b></span><span>Срок: {d.months} мес.</span></div>
                 <div style={S.cinfo}><span>Доход: <b style={{ color: "#00d68f" }}>+{fmt(d.profit)}</b></span></div>
-                <button style={S.btnGreen} onClick={() => handleCloseDeposit(d)}>Закрыть и получить +{fmt(d.profit)}</button>
+                {(() => {
+  const daysHeld = (new Date() - new Date(d.date)) / (1000 * 60 * 60 * 24);
+  const daysRequired = d.months * 30;
+  const canClose = daysHeld >= daysRequired;
+  return (
+    <button style={canClose ? S.btnGreen : S.btnRed} onClick={() => handleCloseDeposit(d)}>
+      {canClose 
+        ? `✅ Закрыть и получить +${fmt(d.profit)}` 
+        : `⚠️ Досрочно (без процентов) • осталось ${Math.ceil(daysRequired - daysHeld)} дн.`}
+    </button>
+  );
+})()}
               </div>
             ))}
             <div style={S.card}>
