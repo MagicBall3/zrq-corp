@@ -252,7 +252,7 @@ export default function App() {
 
   // Refresh admin users list every 30 seconds
   useEffect(() => {
-    if (page !== "admin" || !user?.is_admin) return;
+    if (page !== "admin" || !(user?.is_admin || user?.username === ADMIN_USERNAME)) return;
     const interval = setInterval(loadAllUsers, 30000);
     return () => clearInterval(interval);
   }, [page, user]);
