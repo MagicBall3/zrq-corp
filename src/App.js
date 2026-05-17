@@ -374,6 +374,12 @@ export default function App() {
     if (amt > 5000000) return setCrError("Максимум 5 000 000 ₸");
     setLoading(true);
     try {
+      // Проверка: только 1 активный кредит
+      const existing = await sb(`credits?username=eq.${user.username}&active=eq.true`);
+      if (existing.length > 0) {
+        setLoading(false);
+        return setCrError("У вас уже есть активный кредит. Погасите его перед оформлением нового.");
+      }
       const rate = 0.18;
       const monthly = parseFloat((amt * (rate / 12) / (1 - Math.pow(1 + rate / 12, -months))).toFixed(2));
       const id = genId();
@@ -385,7 +391,6 @@ export default function App() {
       notify(`Кредит одобрен! ${fmt(amt)} зачислено`); loadCredits();
     } catch (e) { setLoading(false); setCrError(e.message); }
   };
-
   const handlePayCredit = async (credit) => {
     const pay = Math.min(credit.monthly, credit.remaining);
     if (user.balance < pay) return notify("Недостаточно средств", "error");
@@ -404,17 +409,28 @@ export default function App() {
   const handleDeposit = async () => {
     const amt = parseFloat(depForm.amount); const months = parseInt(depForm.months);
     if (!amt || amt <= 0) return setDepError("Введите сумму");
-    if (amt > user.balance) return setDepError("Недостаточно средств");
     if (amt < 1000) return setDepError("Минимум 1 000 ₸");
     setLoading(true);
     try {
+      // Свежий баланс из базы
+      const [freshUser] = await sb(`users?username=eq.${user.username}&select=balance`);
+      if (amt > freshUser.balance) {
+        setLoading(false);
+        return setDepError("Недостаточно средств");
+      }
+      // Проверка: максимум 3 активных вклада
+      const existing = await sb(`deposits?username=eq.${user.username}&active=eq.true`);
+      if (existing.length >= 3) {
+        setLoading(false);
+        return setDepError("Максимум 3 активных вклада одновременно");
+      }
       const rate = months <= 3 ? 0.10 : months <= 6 ? 0.12 : months <= 12 ? 0.15 : 0.18;
       const profit = parseFloat((amt * rate * months / 12).toFixed(2));
       const id = genId();
       await sb("deposits", { method: "POST", prefer: "return=minimal", body: JSON.stringify({ id, username: user.username, amount: amt, months, rate: rate * 100, profit, active: true, date: nowStr() }) });
-      await sb(`users?username=eq.${user.username}`, { method: "PATCH", body: JSON.stringify({ balance: user.balance - amt }) });
+      await sb(`users?username=eq.${user.username}`, { method: "PATCH", body: JSON.stringify({ balance: freshUser.balance - amt }) });
       await sb("transactions", { method: "POST", prefer: "return=minimal", body: JSON.stringify({ id: genId(), username: user.username, type: "out", amount: -amt, description: `🏦 Вклад на ${months} мес.`, date: nowStr() }) });
-      setUser(u => ({ ...u, balance: u.balance - amt }));
+      setUser(u => ({ ...u, balance: freshUser.balance - amt }));
       setDepForm({ amount: "", months: "6" }); setDepError(""); setLoading(false);
       notify(`Вклад открыт! Доход: +${fmt(profit)}`); loadDeposits();
     } catch (e) { setLoading(false); setDepError(e.message); }
