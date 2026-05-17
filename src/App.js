@@ -697,7 +697,7 @@ export default function App() {
                 <div style={S.cinfo}><span>Ставка: <b style={{ color: "#00d68f" }}>{d.rate}%</b></span><span>Срок: {d.months} мес.</span></div>
                 <div style={S.cinfo}><span>Доход: <b style={{ color: "#00d68f" }}>+{fmt(d.profit)}</b></span></div>
                 {(() => {
-  const daysHeld = (new Date() - new Date(d.date)) / (1000 * 60 * 60 * 24);
+  const daysHeld = (new Date() - new Date(d.date.includes('T') ? d.date : d.date.split(', ')[0].split('.').reverse().join('-'))) / (1000 * 60 * 60 * 24);
   const daysRequired = d.months * 30;
   const canClose = daysHeld >= daysRequired;
   return (
