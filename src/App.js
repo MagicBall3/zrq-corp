@@ -20,9 +20,7 @@ const nowStr = () => new Date().toLocaleString("ru-RU");
 const genId = () => Math.random().toString(36).slice(2, 10).toUpperCase();
 const isOnline = (lastSeen) => {
   if (!lastSeen) return false;
-  return (Date.now() - new Date(lastSeen).getTime()) < 3 * 60 * 1000; // 3 minutes
-};
-
+  return (Date.now() - new Date(lastSeen).getTime()) < 2 * 60 * 1000;
 // ─── QR Code Generator (pure JS, no library) ─────────────────────────────────
 function QRCode({ value, size = 200 }) {
   const url = `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(value)}&bgcolor=111827&color=00d68f&format=png`;
