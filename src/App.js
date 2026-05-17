@@ -436,16 +436,35 @@ export default function App() {
   };
 
   const handleCloseDeposit = async (dep) => {
-    const total = dep.amount + dep.profit;
-    setLoading(true);
-    try {
-      await sb(`deposits?id=eq.${dep.id}`, { method: "PATCH", body: JSON.stringify({ active: false }) });
-      await sb(`users?username=eq.${user.username}`, { method: "PATCH", body: JSON.stringify({ balance: user.balance + total }) });
-      await sb("transactions", { method: "POST", prefer: "return=minimal", body: JSON.stringify({ id: genId(), username: user.username, type: "in", amount: total, description: `🏦 Закрытие вклада #${dep.id}`, date: nowStr() }) });
-      setUser(u => ({ ...u, balance: u.balance + total }));
-      setLoading(false); notify(`Получено ${fmt(total)}`); loadDeposits();
-    } catch (e) { setLoading(false); notify(e.message, "error"); }
-  };
+  const openDate = new Date(dep.date);
+  const now = new Date();
+  const daysHeld = (now - openDate) / (1000 * 60 * 60 * 24);
+  const daysRequired = dep.months * 30;
+  
+  // Если закрыть раньше срока — только сумма без процентов
+  const earlyClose = daysHeld < daysRequired;
+  const total = earlyClose ? dep.amount : dep.amount + dep.profit;
+  
+  setLoading(true);
+  try {
+    await sb(`deposits?id=eq.${dep.id}`, { method: "PATCH", body: JSON.stringify({ active: false }) });
+    await sb(`users?username=eq.${user.username}`, { method: "PATCH", body: JSON.stringify({ balance: user.balance + total }) });
+    await sb("transactions", { method: "POST", prefer: "return=minimal", body: JSON.stringify({ 
+      id: genId(), username: user.username, type: "in", amount: total, 
+      description: earlyClose 
+        ? `🏦 Досрочное закрытие вклада #${dep.id} (проценты потеряны)` 
+        : `🏦 Закрытие вклада #${dep.id} с процентами`, 
+      date: nowStr() 
+    }) });
+    setUser(u => ({ ...u, balance: u.balance + total }));
+    setLoading(false);
+    notify(earlyClose 
+      ? `⚠️ Досрочно! Получено только ${fmt(dep.amount)} без процентов` 
+      : `🎉 Получено ${fmt(total)} с процентами!`
+    );
+    loadDeposits();
+  } catch (e) { setLoading(false); notify(e.message, "error"); }
+};
 
   // ── ADMIN ─────────────────────────────────────────────────────────────────
   const handleAdminAction = async (username, subtract = false) => {
