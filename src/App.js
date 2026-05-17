@@ -219,7 +219,7 @@ export default function App() {
     if (!session?.username || pinState !== "done") return;
     const updateSeen = () => sb(`users?username=eq.${session.username}`, { method: "PATCH", prefer: "return=minimal", body: JSON.stringify({ last_seen: new Date().toISOString() }) }).catch(() => {});
     updateSeen();
-    const interval = setInterval(updateSeen, 2 * 60 * 1000);
+    const interval = setInterval(updateSeen, 30 * 1000);
     return () => clearInterval(interval);
   }, [session, pinState]);
 
