@@ -3,10 +3,8 @@
   "appName": "QazaqBank",
   "webDir": "build",
   "server": {
-    "androidScheme": "https",
-    "cleartext": true
-  },
-  "android": {
-    "allowMixedContent": true
+    "androidScheme": "http",
+    "cleartext": true,
+    "hostname": "localhost"
   }
 }
