@@ -18,21 +18,12 @@ const sb = async (path, options = {}) => {
 const fmt = (n) => new Intl.NumberFormat("kk-KZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0) + " ₸";
 const nowStr = () => new Date().toLocaleString("ru-RU");
 const genId = () => Math.random().toString(36).slice(2, 10).toUpperCase();
-const isOnline = (lastSeen) => {
-  if (!lastSeen) return false;
-  return (Date.now() - new Date(lastSeen).getTime()) < 2 * 60 * 1000;
-};
-const parseDepDate = (dateStr) => {
-  if (!dateStr) return new Date();
-  if (dateStr.includes("T")) return new Date(dateStr);
-  const parts = dateStr.split(", ");
-  const dp = parts[0].split(".");
-  return new Date(`${dp[2]}-${dp[1]}-${dp[0]}T${parts[1] || "00:00:00"}`);
-};
+const isOnline = (lastSeen) => { if (!lastSeen) return false; return (Date.now() - new Date(lastSeen).getTime()) < 2 * 60 * 1000; };
+const parseDepDate = (d) => { if (!d) return new Date(); if (d.includes("T")) return new Date(d); const p = d.split(", "); const dp = p[0].split("."); return new Date(`${dp[2]}-${dp[1]}-${dp[0]}T${p[1] || "00:00:00"}`); };
 
+// ── QR ────────────────────────────────────────────────────────────────────────
 function QRCode({ value, size = 200 }) {
-  const url = `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(value)}&bgcolor=111827&color=00d68f&format=png`;
-  return <img src={url} alt="QR" style={{ width: size, height: size, borderRadius: 12, border: "2px solid #00d68f33" }} />;
+  return <img src={`https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(value)}&bgcolor=1a0533&color=c084fc&format=png`} alt="QR" style={{ width: size, height: size, borderRadius: 16, border: "2px solid #c084fc44" }} />;
 }
 
 function QRScanner({ onScan, onClose }) {
@@ -41,755 +32,756 @@ function QRScanner({ onScan, onClose }) {
   const [scanning, setScanning] = useState(false);
   useEffect(() => {
     let stream = null;
-    const start = async () => {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-        if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); setScanning(true); }
-      } catch (e) { setError("Нет доступа к камере"); }
-    };
-    start();
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+      .then(s => { stream = s; if (videoRef.current) { videoRef.current.srcObject = s; videoRef.current.play(); setScanning(true); } })
+      .catch(() => setError("Нет доступа к камере"));
     return () => { if (stream) stream.getTracks().forEach(t => t.stop()); };
   }, []);
   useEffect(() => {
-    if (!scanning) return;
-    if (!("BarcodeDetector" in window)) { setError("Введите логин вручную"); return; }
-    const detector = new window.BarcodeDetector({ formats: ["qr_code"] });
-    const interval = setInterval(async () => {
-      if (!videoRef.current) return;
-      try {
-        const barcodes = await detector.detect(videoRef.current);
-        if (barcodes.length > 0) { clearInterval(interval); onScan(barcodes[0].rawValue); }
-      } catch (e) {}
-    }, 500);
-    return () => clearInterval(interval);
+    if (!scanning || !("BarcodeDetector" in window)) { if (scanning) setError("Введите логин вручную"); return; }
+    const det = new window.BarcodeDetector({ formats: ["qr_code"] });
+    const iv = setInterval(async () => { try { const b = await det.detect(videoRef.current); if (b.length) { clearInterval(iv); onScan(b[0].rawValue); } } catch {} }, 500);
+    return () => clearInterval(iv);
   }, [scanning, onScan]);
   return (
-    <div style={SC.overlay}>
-      <div style={SC.card}>
+    <div style={M.overlay}>
+      <div style={M.sheet}>
+        <div style={M.sheetHandle} />
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <b style={{ color: "#e8eaf0" }}>📷 Сканировать QR</b>
-          <button style={{ background: "none", border: "none", color: "#ff6b6b", fontSize: 22, cursor: "pointer" }} onClick={onClose}>✕</button>
+          <span style={M.sheetTitle}>📷 Сканировать QR</span>
+          <button style={M.closeBtn} onClick={onClose}>✕</button>
         </div>
-        {error ? <p style={{ color: "#ff6b6b", textAlign: "center" }}>{error}</p> : <video ref={videoRef} style={{ width: "100%", borderRadius: 12, background: "#000" }} muted playsInline />}
-        <p style={{ color: "#5a6a80", fontSize: 12, textAlign: "center", marginTop: 12 }}>Наведи камеру на QR-код</p>
+        {error ? <p style={{ color: "#f87171", textAlign: "center" }}>{error}</p> : <video ref={videoRef} style={{ width: "100%", borderRadius: 16, background: "#000" }} muted playsInline />}
       </div>
     </div>
   );
 }
-const SC = {
-  overlay: { position: "fixed", inset: 0, background: "#000d", zIndex: 500, display: "flex", alignItems: "flex-end" },
-  card: { background: "#111827", border: "1px solid #1f2d44", borderRadius: "20px 20px 0 0", padding: 24, width: "100%", maxHeight: "80vh" },
-};
 
+// ── PIN ───────────────────────────────────────────────────────────────────────
 function PinScreen({ mode, onSuccess, onCancel, username }) {
   const [pin, setPin] = useState([]);
   const [confirmPin, setConfirmPin] = useState([]);
   const [step, setStep] = useState("enter");
   const [error, setError] = useState("");
+  const [shake, setShake] = useState(false);
+
+  const doShake = () => { setShake(true); setTimeout(() => setShake(false), 500); };
+
   const handleDigit = (d) => {
     if (pin.length >= 4) return;
-    const newPin = [...pin, d]; setPin(newPin); setError("");
-    if (newPin.length === 4) {
-      setTimeout(() => {
-        if (mode === "set") {
-          if (step === "enter") { setConfirmPin(newPin); setStep("confirm"); setPin([]); }
-          else {
-            if (newPin.join("") === confirmPin.join("")) { localStorage.setItem(`pin_${username}`, newPin.join("")); onSuccess(); }
-            else { setError("PIN не совпадает"); setPin([]); setStep("enter"); setConfirmPin([]); }
-          }
-        } else {
-          if (newPin.join("") === localStorage.getItem(`pin_${username}`)) onSuccess();
-          else { setError("Неверный PIN"); setPin([]); }
-        }
-      }, 150);
-    }
+    const np = [...pin, d]; setPin(np); setError("");
+    if (np.length === 4) setTimeout(() => {
+      if (mode === "set") {
+        if (step === "enter") { setConfirmPin(np); setStep("confirm"); setPin([]); }
+        else if (np.join("") === confirmPin.join("")) { localStorage.setItem(`pin_${username}`, np.join("")); onSuccess(); }
+        else { setError("PIN не совпадает"); doShake(); setPin([]); setStep("enter"); setConfirmPin([]); }
+      } else {
+        if (np.join("") === localStorage.getItem(`pin_${username}`)) onSuccess();
+        else { setError("Неверный PIN"); doShake(); setPin([]); }
+      }
+    }, 150);
   };
-  const title = mode === "set" ? (step === "enter" ? "Создайте PIN-код" : "Повторите PIN-код") : "Введите PIN-код";
+
+  const titles = { set: { enter: "Придумайте PIN-код", confirm: "Повторите PIN-код" }, check: "Введите PIN-код" };
+  const title = mode === "set" ? titles.set[step] : titles.check;
+
   return (
-    <div style={PS.root}>
-      <div style={PS.card}>
-        <div style={PS.logo}>⛁</div>
-        <div style={PS.title}>QAZAQBANK</div>
-        {username && <div style={PS.subtitle}>@{username}</div>}
-        <div style={PS.pinTitle}>{title}</div>
-        <div style={PS.dots}>{[0,1,2,3].map(i => <div key={i} style={{ ...PS.dot, ...(i < pin.length ? PS.dotFilled : {}) }} />)}</div>
-        {error && <div style={PS.error}>{error}</div>}
-        <div style={PS.numpad}>
-          {[1,2,3,4,5,6,7,8,9].map(d => <button key={d} style={PS.numBtn} onClick={() => handleDigit(d)}>{d}</button>)}
-          <div style={PS.numBtn} />
-          <button style={PS.numBtn} onClick={() => handleDigit(0)}>0</button>
-          <button style={{ ...PS.numBtn, color: "#ff6b6b" }} onClick={() => setPin(p => p.slice(0, -1))}>⌫</button>
+    <div style={P.root}>
+      <div style={P.glow} />
+      <div style={P.card}>
+        <div style={P.logo}>⛁</div>
+        <div style={P.brand}>QAZAQBANK</div>
+        {username && <div style={P.sub}>@{username}</div>}
+        <div style={P.label}>{title}</div>
+        <div style={{ ...P.dots, ...(shake ? { transform: "translateX(8px)" } : {}) }}>
+          {[0,1,2,3].map(i => <div key={i} style={{ ...P.dot, ...(i < pin.length ? P.dotOn : {}) }} />)}
         </div>
-        {onCancel && <button style={PS.cancelBtn} onClick={onCancel}>Выйти из аккаунта</button>}
+        {error && <div style={P.err}>{error}</div>}
+        <div style={P.grid}>
+          {[1,2,3,4,5,6,7,8,9].map(d => <button key={d} style={P.key} onClick={() => handleDigit(d)}>{d}</button>)}
+          <div />
+          <button style={P.key} onClick={() => handleDigit(0)}>0</button>
+          <button style={{ ...P.key, color: "#f87171", fontSize: 20 }} onClick={() => setPin(p => p.slice(0,-1))}>⌫</button>
+        </div>
+        {onCancel && <button style={P.out} onClick={onCancel}>Выйти из аккаунта</button>}
       </div>
     </div>
   );
 }
-const PS = {
-  root: { position: "fixed", inset: 0, background: "#0a0d14", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 },
-  card: { width: "100%", maxWidth: 360, padding: "40px 24px", display: "flex", flexDirection: "column", alignItems: "center" },
-  logo: { fontSize: 48, marginBottom: 8 }, title: { fontSize: 18, fontWeight: 800, letterSpacing: 3, color: "#00d68f", marginBottom: 4 },
-  subtitle: { fontSize: 13, color: "#5a6a80", marginBottom: 32 }, pinTitle: { fontSize: 16, color: "#c8d0dc", marginBottom: 28 },
-  dots: { display: "flex", gap: 20, marginBottom: 16 },
-  dot: { width: 18, height: 18, borderRadius: "50%", border: "2px solid #2a3a4a", background: "transparent", transition: "all .15s" },
-  dotFilled: { background: "#00d68f", border: "2px solid #00d68f" },
-  error: { color: "#ff6b6b", fontSize: 13, marginBottom: 16, textAlign: "center" },
-  numpad: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, width: "100%", maxWidth: 280, marginTop: 16 },
-  numBtn: { width: "100%", aspectRatio: "1", borderRadius: "50%", background: "#111827", border: "1px solid #1f2d44", color: "#e8eaf0", fontSize: 24, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" },
-  cancelBtn: { marginTop: 32, background: "none", border: "none", color: "#ff6b6b", fontSize: 14, cursor: "pointer" },
+
+const P = {
+  root: { position: "fixed", inset: 0, background: "#0d0118", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, overflow: "hidden" },
+  glow: { position: "absolute", width: 400, height: 400, borderRadius: "50%", background: "radial-gradient(circle, #7c3aed44 0%, transparent 70%)", top: "10%", left: "50%", transform: "translateX(-50%)", pointerEvents: "none" },
+  card: { position: "relative", width: "100%", maxWidth: 340, padding: "48px 24px 32px", display: "flex", flexDirection: "column", alignItems: "center" },
+  logo: { fontSize: 52, marginBottom: 8, filter: "drop-shadow(0 0 20px #a855f7)" },
+  brand: { fontSize: 20, fontWeight: 900, letterSpacing: 4, background: "linear-gradient(135deg, #c084fc, #818cf8)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", marginBottom: 4 },
+  sub: { fontSize: 13, color: "#6b7280", marginBottom: 36 },
+  label: { fontSize: 15, color: "#d1d5db", marginBottom: 28, fontWeight: 500 },
+  dots: { display: "flex", gap: 18, marginBottom: 12, transition: "transform .1s" },
+  dot: { width: 16, height: 16, borderRadius: "50%", border: "2px solid #374151", background: "transparent", transition: "all .2s" },
+  dotOn: { background: "linear-gradient(135deg, #c084fc, #818cf8)", border: "2px solid #c084fc", boxShadow: "0 0 12px #c084fc88", transform: "scale(1.2)" },
+  err: { color: "#f87171", fontSize: 13, marginBottom: 12, textAlign: "center" },
+  grid: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, width: "100%", maxWidth: 260, marginTop: 20 },
+  key: { aspectRatio: "1", borderRadius: "50%", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#f3f4f6", fontSize: 22, fontWeight: 600, cursor: "pointer", backdropFilter: "blur(10px)", transition: "all .15s" },
+  out: { marginTop: 36, background: "none", border: "none", color: "#6b7280", fontSize: 14, cursor: "pointer" },
 };
 
+// ── APP ───────────────────────────────────────────────────────────────────────
 export default function App() {
   const [session, setSession] = useState(() => { try { return JSON.parse(localStorage.getItem("qb_session")); } catch { return null; } });
   const [user, setUser] = useState(null);
   const [page, setPage] = useState("home");
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [notification, setNotification] = useState(null);
+  const [notif, setNotif] = useState(null);
   const [loading, setLoading] = useState(false);
   const [pinState, setPinState] = useState("idle");
   const [allUsers, setAllUsers] = useState([]);
   const [txList, setTxList] = useState([]);
   const [credits, setCredits] = useState([]);
   const [deposits, setDeposits] = useState([]);
-  const [selectedUser, setSelectedUser] = useState(null);
+  const [selUser, setSelUser] = useState(null);
   const [adminUserTx, setAdminUserTx] = useState([]);
   const [adminMenuUser, setAdminMenuUser] = useState(null);
-  const [clickCount, setClickCount] = useState(0);
-  const [earnCooldown, setEarnCooldown] = useState(false);
+  const [adminTab, setAdminTab] = useState("users");
+  const [clicks, setClicks] = useState(0);
+  const [cooldown, setCooldown] = useState(false);
   const [clickAnim, setClickAnim] = useState(false);
   const [showQR, setShowQR] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [authPage, setAuthPage] = useState("login");
   const [authForm, setAuthForm] = useState({ username: "", password: "", fullname: "", birthdate: "" });
-  const [authError, setAuthError] = useState("");
-  const [tfForm, setTfForm] = useState({ to: "", amount: "", note: "" });
-  const [tfError, setTfError] = useState("");
-  const [crForm, setCrForm] = useState({ amount: "", months: "12" });
-  const [crError, setCrError] = useState("");
-  const [depForm, setDepForm] = useState({ amount: "", months: "6" });
-  const [depError, setDepError] = useState("");
+  const [authErr, setAuthErr] = useState("");
+  const [tf, setTf] = useState({ to: "", amount: "", note: "" });
+  const [tfErr, setTfErr] = useState("");
+  const [cr, setCr] = useState({ amount: "", months: "12" });
+  const [crErr, setCrErr] = useState("");
+  const [dep, setDep] = useState({ amount: "", months: "6" });
+  const [depErr, setDepErr] = useState("");
   const [adminGive, setAdminGive] = useState({ username: "", amount: "" });
-  const [adminTab, setAdminTab] = useState("users"); // users | actions
+  const [balHidden, setBalHidden] = useState(false);
 
-  const notify = (msg, type = "success") => { setNotification({ msg, type }); setTimeout(() => setNotification(null), 3500); };
-
-  const loadUser = useCallback(async (username) => {
-    try { const [u] = await sb(`users?username=eq.${username}&select=*`); if (u) setUser(u); return u; } catch (e) { console.error(e); }
-  }, []);
+  const toast = (msg, type = "ok") => { setNotif({ msg, type }); setTimeout(() => setNotif(null), 3500); };
+  const loadUser = useCallback(async (u) => { try { const [r] = await sb(`users?username=eq.${u}&select=*`); if (r) setUser(r); return r; } catch {} }, []);
 
   useEffect(() => {
     if (!session?.username || pinState !== "done") return;
-    const updateSeen = () => sb(`users?username=eq.${session.username}`, { method: "PATCH", prefer: "return=minimal", body: JSON.stringify({ last_seen: new Date().toISOString() }) }).catch(() => {});
-    updateSeen();
-    const interval = setInterval(updateSeen, 30 * 1000);
-    return () => clearInterval(interval);
+    const tick = () => sb(`users?username=eq.${session.username}`, { method: "PATCH", prefer: "return=minimal", body: JSON.stringify({ last_seen: new Date().toISOString() }) }).catch(() => {});
+    tick();
+    const iv = setInterval(tick, 30000);
+    return () => clearInterval(iv);
   }, [session, pinState]);
 
   useEffect(() => {
-    if (session?.username) {
-      loadUser(session.username).then(() => {
-        const hasPin = !!localStorage.getItem(`pin_${session.username}`);
-        setPinState(hasPin ? "check" : "set");
-      });
-    }
+    if (session?.username) loadUser(session.username).then(() => setPinState(localStorage.getItem(`pin_${session.username}`) ? "check" : "set"));
   }, [session, loadUser]);
 
   useEffect(() => {
-    const handleVisibility = () => { if (document.hidden && session?.username && pinState === "done") setPinState("check"); };
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () => document.removeEventListener("visibilitychange", handleVisibility);
+    const fn = () => { if (document.hidden && session?.username && pinState === "done") setPinState("check"); };
+    document.addEventListener("visibilitychange", fn);
+    return () => document.removeEventListener("visibilitychange", fn);
   }, [session, pinState]);
 
-  const navigate = (p) => { setPage(p); setDrawerOpen(false); };
+  const nav = (p) => { setPage(p); setDrawerOpen(false); };
 
   useEffect(() => {
     if (!user || pinState !== "done") return;
     if (page === "home") loadTx(user.username, 5);
     if (page === "statement") loadTx(user.username, 100);
-    if (page === "credit") loadCredits();
-    if (page === "deposit") loadDeposits();
-    if (page === "admin") loadAllUsers();
+    if (page === "credit") loadCr();
+    if (page === "deposit") loadDep();
+    if (page === "admin") loadUsers();
   }, [page, user, pinState]);
 
-  useEffect(() => {
-    if (page !== "admin") return;
-    const interval = setInterval(loadAllUsers, 30000);
-    return () => clearInterval(interval);
-  }, [page]);
+  useEffect(() => { if (page !== "admin") return; const iv = setInterval(loadUsers, 30000); return () => clearInterval(iv); }, [page]);
 
-  const loadTx = async (username, limit = 50) => { try { setTxList(await sb(`transactions?username=eq.${username}&order=created_at.desc&limit=${limit}`)); } catch (e) {} };
-  const loadCredits = async () => { try { setCredits(await sb(`credits?username=eq.${user.username}&active=eq.true&order=created_at.desc`)); } catch (e) {} };
-  const loadDeposits = async () => { try { setDeposits(await sb(`deposits?username=eq.${user.username}&active=eq.true&order=created_at.desc`)); } catch (e) {} };
-  const loadAllUsers = async () => { try { setAllUsers(await sb("users?select=*&order=created_at.desc")); } catch (e) {} };
+  const loadTx = async (u, l = 50) => { try { setTxList(await sb(`transactions?username=eq.${u}&order=created_at.desc&limit=${l}`)); } catch {} };
+  const loadCr = async () => { try { setCredits(await sb(`credits?username=eq.${user.username}&active=eq.true&order=created_at.desc`)); } catch {} };
+  const loadDep = async () => { try { setDeposits(await sb(`deposits?username=eq.${user.username}&active=eq.true&order=created_at.desc`)); } catch {} };
+  const loadUsers = async () => { try { setAllUsers(await sb("users?select=*&order=created_at.desc")); } catch {} };
 
-  // ── AUTH ──────────────────────────────────────────────────────────────────
-  const handleRegister = async () => {
+  // AUTH
+  const doRegister = async () => {
     const { username, password, fullname, birthdate } = authForm;
-    if (!username || !password || !fullname || !birthdate) return setAuthError("Заполните все поля");
-    if (password.length < 4) return setAuthError("Пароль минимум 4 символа");
+    if (!username || !password || !fullname || !birthdate) return setAuthErr("Заполните все поля");
+    if (password.length < 4) return setAuthErr("Пароль минимум 4 символа");
     setLoading(true);
     try {
-      const exists = await sb(`users?username=eq.${username}&select=id`);
-      if (exists.length > 0) { setLoading(false); return setAuthError("Логин занят"); }
+      if ((await sb(`users?username=eq.${username}&select=id`)).length) { setLoading(false); return setAuthErr("Логин занят"); }
       const bonus = Math.floor(Math.random() * 40001) + 10000;
-      const cardNumber = "4" + Array(15).fill(0).map(() => Math.floor(Math.random() * 10)).join("");
-      await sb("users", { method: "POST", body: JSON.stringify({ username, password, fullname, birthdate, balance: bonus, card_number: cardNumber, is_admin: username === ADMIN_USERNAME, is_blocked: false, last_seen: new Date().toISOString() }) });
+      const card = "4" + Array(15).fill(0).map(() => Math.floor(Math.random()*10)).join("");
+      await sb("users", { method: "POST", body: JSON.stringify({ username, password, fullname, birthdate, balance: bonus, card_number: card, is_admin: username === ADMIN_USERNAME, is_blocked: false, last_seen: new Date().toISOString() }) });
       await sb("transactions", { method: "POST", body: JSON.stringify({ id: genId(), username, type: "bonus", amount: bonus, description: "🎉 Приветственный бонус", date: nowStr() }) });
-      setLoading(false); setAuthError(""); notify(`Аккаунт создан! Бонус ${fmt(bonus)}! 🎉`); setAuthPage("login");
-    } catch (e) { setLoading(false); setAuthError(e.message); }
+      setLoading(false); setAuthErr(""); toast(`Добро пожаловать! Бонус ${fmt(bonus)} 🎉`); setAuthPage("login");
+    } catch (e) { setLoading(false); setAuthErr(e.message); }
   };
 
-  const handleLogin = async () => {
+  const doLogin = async () => {
     const { username, password } = authForm;
-    if (!username || !password) return setAuthError("Введите логин и пароль");
+    if (!username || !password) return setAuthErr("Введите логин и пароль");
     setLoading(true);
     try {
       const [u] = await sb(`users?username=eq.${username}&select=*`);
-      if (!u) { setLoading(false); return setAuthError("Пользователь не найден"); }
-      if (u.password !== password) { setLoading(false); return setAuthError("Неверный пароль"); }
-      if (u.is_blocked) { setLoading(false); return setAuthError("🚫 Аккаунт заблокирован администратором"); }
+      if (!u) { setLoading(false); return setAuthErr("Пользователь не найден"); }
+      if (u.password !== password) { setLoading(false); return setAuthErr("Неверный пароль"); }
+      if (u.is_blocked) { setLoading(false); return setAuthErr("🚫 Аккаунт заблокирован"); }
       await sb(`users?username=eq.${username}`, { method: "PATCH", prefer: "return=minimal", body: JSON.stringify({ last_seen: new Date().toISOString() }) });
       const today = new Date(); const bday = new Date(u.birthdate);
-      if (bday.getDate() === today.getDate() && bday.getMonth() === today.getMonth()) {
-        const lastBday = localStorage.getItem(`bday_${username}`);
-        if (lastBday !== today.toDateString()) {
-          const bdayBonus = Math.floor(Math.random() * 40001) + 10000;
-          await sb(`users?username=eq.${username}`, { method: "PATCH", body: JSON.stringify({ balance: u.balance + bdayBonus }) });
-          await sb("transactions", { method: "POST", body: JSON.stringify({ id: genId(), username, type: "bonus", amount: bdayBonus, description: "🎂 С Днём рождения!", date: nowStr() }) });
-          localStorage.setItem(`bday_${username}`, today.toDateString());
-          u.balance += bdayBonus; notify(`🎂 С Днём рождения! +${fmt(bdayBonus)}!`);
-        }
+      if (bday.getDate() === today.getDate() && bday.getMonth() === today.getMonth() && localStorage.getItem(`bday_${username}`) !== today.toDateString()) {
+        const bb = Math.floor(Math.random() * 40001) + 10000;
+        await sb(`users?username=eq.${username}`, { method: "PATCH", body: JSON.stringify({ balance: u.balance + bb }) });
+        await sb("transactions", { method: "POST", body: JSON.stringify({ id: genId(), username, type: "bonus", amount: bb, description: "🎂 С Днём рождения!", date: nowStr() }) });
+        localStorage.setItem(`bday_${username}`, today.toDateString()); u.balance += bb; toast(`🎂 С Днём рождения! +${fmt(bb)}`);
       }
       localStorage.setItem("qb_session", JSON.stringify({ username: u.username }));
-      setSession({ username: u.username }); setUser(u); setPage("home"); setAuthError(""); setLoading(false);
-      setPinState(!!localStorage.getItem(`pin_${username}`) ? "check" : "set");
-    } catch (e) { setLoading(false); setAuthError(e.message); }
+      setSession({ username: u.username }); setUser(u); setPage("home"); setAuthErr(""); setLoading(false);
+      setPinState(localStorage.getItem(`pin_${username}`) ? "check" : "set");
+    } catch (e) { setLoading(false); setAuthErr(e.message); }
   };
 
-  const handleLogout = () => {
+  const doLogout = () => {
     if (session?.username) sb(`users?username=eq.${session.username}`, { method: "PATCH", prefer: "return=minimal", body: JSON.stringify({ last_seen: new Date(0).toISOString() }) }).catch(() => {});
     localStorage.removeItem("qb_session");
-    setSession(null); setUser(null); setPage("home");
-    setAuthForm({ username: "", password: "", fullname: "", birthdate: "" });
-    setDrawerOpen(false); setPinState("idle");
+    setSession(null); setUser(null); setPage("home"); setAuthForm({ username: "", password: "", fullname: "", birthdate: "" }); setDrawerOpen(false); setPinState("idle");
   };
 
-  // ── EARN ──────────────────────────────────────────────────────────────────
-  const handleEarn = async () => {
-    if (earnCooldown || !user) return;
+  // EARN
+  const doEarn = async () => {
+    if (cooldown || !user) return;
     try {
       await sb(`users?username=eq.${user.username}`, { method: "PATCH", body: JSON.stringify({ balance: user.balance + 1 }) });
       await sb("transactions", { method: "POST", prefer: "return=minimal", body: JSON.stringify({ id: genId(), username: user.username, type: "earn", amount: 1, description: "💰 Клик-заработок", date: nowStr() }) });
       setUser(u => ({ ...u, balance: u.balance + 1 }));
       setClickAnim(true); setTimeout(() => setClickAnim(false), 200);
-      setClickCount(c => { const next = c + 1; if (next >= 100) { setEarnCooldown(true); setTimeout(() => { setEarnCooldown(false); setClickCount(0); }, 30000); } return next; });
-    } catch (e) {}
+      setClicks(c => { const n = c + 1; if (n >= 100) { setCooldown(true); setTimeout(() => { setCooldown(false); setClicks(0); }, 30000); } return n; });
+    } catch {}
   };
 
-  // ── TRANSFER ──────────────────────────────────────────────────────────────
-  const handleTransfer = async () => {
-    const { to, amount, note } = tfForm;
-    const amt = parseFloat(amount);
-    if (!to || !amt) return setTfError("Заполните получателя и сумму");
-    if (to === user.username) return setTfError("Нельзя переводить себе");
-    if (amt <= 0) return setTfError("Сумма должна быть больше 0");
-    if (amt > user.balance) return setTfError("Недостаточно средств");
+  // TRANSFER
+  const doTransfer = async () => {
+    const amt = parseFloat(tf.amount);
+    if (!tf.to || !amt) return setTfErr("Заполните получателя и сумму");
+    if (tf.to === user.username) return setTfErr("Нельзя переводить себе");
+    if (amt <= 0 || amt > user.balance) return setTfErr(amt <= 0 ? "Сумма должна быть больше 0" : "Недостаточно средств");
     setLoading(true);
     try {
-      const [recipient] = await sb(`users?username=eq.${to}&select=*`);
-      if (!recipient) { setLoading(false); return setTfError("Получатель не найден"); }
-      if (recipient.is_blocked) { setLoading(false); return setTfError("Получатель заблокирован"); }
-      const txId = genId();
+      const [r] = await sb(`users?username=eq.${tf.to}&select=*`);
+      if (!r) { setLoading(false); return setTfErr("Получатель не найден"); }
+      if (r.is_blocked) { setLoading(false); return setTfErr("Получатель заблокирован"); }
+      const id = genId();
       await sb(`users?username=eq.${user.username}`, { method: "PATCH", body: JSON.stringify({ balance: user.balance - amt }) });
-      await sb(`users?username=eq.${to}`, { method: "PATCH", body: JSON.stringify({ balance: recipient.balance + amt }) });
+      await sb(`users?username=eq.${tf.to}`, { method: "PATCH", body: JSON.stringify({ balance: r.balance + amt }) });
       await sb("transactions", { method: "POST", prefer: "return=minimal", body: JSON.stringify([
-        { id: txId + "S", username: user.username, type: "out", amount: -amt, description: `↗ Перевод → ${recipient.fullname}${note ? ": " + note : ""}`, date: nowStr() },
-        { id: txId + "R", username: to, type: "in", amount: amt, description: `↙ Перевод ← ${user.fullname}${note ? ": " + note : ""}`, date: nowStr() },
+        { id: id+"S", username: user.username, type: "out", amount: -amt, description: `↗ Перевод → ${r.fullname}${tf.note ? ": "+tf.note : ""}`, date: nowStr() },
+        { id: id+"R", username: tf.to, type: "in", amount: amt, description: `↙ Перевод ← ${user.fullname}${tf.note ? ": "+tf.note : ""}`, date: nowStr() },
       ]) });
       setUser(u => ({ ...u, balance: u.balance - amt }));
-      setTfForm({ to: "", amount: "", note: "" }); setTfError(""); setLoading(false);
-      notify(`Переведено ${fmt(amt)} → ${recipient.fullname}`); navigate("home");
-    } catch (e) { setLoading(false); setTfError(e.message); }
+      setTf({ to: "", amount: "", note: "" }); setTfErr(""); setLoading(false);
+      toast(`Переведено ${fmt(amt)} → ${r.fullname}`); nav("home");
+    } catch (e) { setLoading(false); setTfErr(e.message); }
   };
 
-  // ── CREDIT ────────────────────────────────────────────────────────────────
-  const handleCredit = async () => {
-    const amt = parseFloat(crForm.amount); const months = parseInt(crForm.months);
-    if (!amt || amt <= 0) return setCrError("Введите сумму");
-    if (amt > 5000000) return setCrError("Максимум 5 000 000 ₸");
+  // CREDIT
+  const doCredit = async () => {
+    const amt = parseFloat(cr.amount); const mo = parseInt(cr.months);
+    if (!amt || amt <= 0) return setCrErr("Введите сумму");
+    if (amt > 5000000) return setCrErr("Максимум 5 000 000 ₸");
     setLoading(true);
     try {
-      const existing = await sb(`credits?username=eq.${user.username}&active=eq.true`);
-      if (existing.length > 0) { setLoading(false); return setCrError("У вас уже есть активный кредит"); }
+      if ((await sb(`credits?username=eq.${user.username}&active=eq.true`)).length) { setLoading(false); return setCrErr("У вас уже есть активный кредит"); }
       const rate = 0.18;
-      const monthly = parseFloat((amt * (rate / 12) / (1 - Math.pow(1 + rate / 12, -months))).toFixed(2));
+      const monthly = parseFloat((amt*(rate/12)/(1-Math.pow(1+rate/12,-mo))).toFixed(2));
       const id = genId();
-      await sb("credits", { method: "POST", prefer: "return=minimal", body: JSON.stringify({ id, username: user.username, amount: amt, remaining: parseFloat((monthly * months).toFixed(2)), monthly, months, paid: 0, active: true, date: nowStr() }) });
+      await sb("credits", { method: "POST", prefer: "return=minimal", body: JSON.stringify({ id, username: user.username, amount: amt, remaining: parseFloat((monthly*mo).toFixed(2)), monthly, months: mo, paid: 0, active: true, date: nowStr() }) });
       await sb(`users?username=eq.${user.username}`, { method: "PATCH", body: JSON.stringify({ balance: user.balance + amt }) });
-      await sb("transactions", { method: "POST", prefer: "return=minimal", body: JSON.stringify({ id: genId(), username: user.username, type: "credit", amount: amt, description: `💳 Кредит на ${months} мес.`, date: nowStr() }) });
+      await sb("transactions", { method: "POST", prefer: "return=minimal", body: JSON.stringify({ id: genId(), username: user.username, type: "credit", amount: amt, description: `💳 Кредит на ${mo} мес.`, date: nowStr() }) });
       setUser(u => ({ ...u, balance: u.balance + amt }));
-      setCrForm({ amount: "", months: "12" }); setCrError(""); setLoading(false);
-      notify(`Кредит одобрен! ${fmt(amt)} зачислено`); loadCredits();
-    } catch (e) { setLoading(false); setCrError(e.message); }
+      setCr({ amount: "", months: "12" }); setCrErr(""); setLoading(false); toast(`Кредит одобрен! ${fmt(amt)}`); loadCr();
+    } catch (e) { setLoading(false); setCrErr(e.message); }
   };
 
-  const handlePayCredit = async (credit) => {
-    const pay = Math.min(credit.monthly, credit.remaining);
-    if (user.balance < pay) return notify("Недостаточно средств", "error");
+  const doPayCredit = async (c) => {
+    const pay = Math.min(c.monthly, c.remaining);
+    if (user.balance < pay) return toast("Недостаточно средств", "err");
     setLoading(true);
     try {
-      const newRemaining = parseFloat((credit.remaining - pay).toFixed(2));
-      await sb(`credits?id=eq.${credit.id}`, { method: "PATCH", body: JSON.stringify({ remaining: newRemaining, paid: credit.paid + 1, active: newRemaining > 0 }) });
+      const nr = parseFloat((c.remaining - pay).toFixed(2));
+      await sb(`credits?id=eq.${c.id}`, { method: "PATCH", body: JSON.stringify({ remaining: nr, paid: c.paid+1, active: nr > 0 }) });
       await sb(`users?username=eq.${user.username}`, { method: "PATCH", body: JSON.stringify({ balance: user.balance - pay }) });
-      await sb("transactions", { method: "POST", prefer: "return=minimal", body: JSON.stringify({ id: genId(), username: user.username, type: "out", amount: -pay, description: `💳 Оплата кредита #${credit.id}`, date: nowStr() }) });
+      await sb("transactions", { method: "POST", prefer: "return=minimal", body: JSON.stringify({ id: genId(), username: user.username, type: "out", amount: -pay, description: `💳 Оплата кредита #${c.id}`, date: nowStr() }) });
       setUser(u => ({ ...u, balance: u.balance - pay }));
-      setLoading(false); notify(`Оплачено ${fmt(pay)}`); loadCredits();
-    } catch (e) { setLoading(false); notify(e.message, "error"); }
+      setLoading(false); toast(`Оплачено ${fmt(pay)}`); loadCr();
+    } catch (e) { setLoading(false); toast(e.message, "err"); }
   };
 
-  // ── DEPOSIT ───────────────────────────────────────────────────────────────
-  const handleDeposit = async () => {
-    const amt = parseFloat(depForm.amount); const months = parseInt(depForm.months);
-    if (!amt || amt <= 0) return setDepError("Введите сумму");
-    if (amt < 1000) return setDepError("Минимум 1 000 ₸");
+  // DEPOSIT
+  const doDep = async () => {
+    const amt = parseFloat(dep.amount); const mo = parseInt(dep.months);
+    if (!amt || amt <= 0) return setDepErr("Введите сумму");
+    if (amt < 1000) return setDepErr("Минимум 1 000 ₸");
     setLoading(true);
     try {
-      const [freshUser] = await sb(`users?username=eq.${user.username}&select=balance`);
-      if (amt > freshUser.balance) { setLoading(false); return setDepError("Недостаточно средств"); }
-      const existing = await sb(`deposits?username=eq.${user.username}&active=eq.true`);
-      if (existing.length >= 3) { setLoading(false); return setDepError("Максимум 3 активных вклада"); }
-      const rate = months <= 3 ? 0.10 : months <= 6 ? 0.12 : months <= 12 ? 0.15 : 0.18;
-      const profit = parseFloat((amt * rate * months / 12).toFixed(2));
+      const [fu] = await sb(`users?username=eq.${user.username}&select=balance`);
+      if (amt > fu.balance) { setLoading(false); return setDepErr("Недостаточно средств"); }
+      if ((await sb(`deposits?username=eq.${user.username}&active=eq.true`)).length >= 3) { setLoading(false); return setDepErr("Максимум 3 активных вклада"); }
+      const rate = mo <= 3 ? 0.10 : mo <= 6 ? 0.12 : mo <= 12 ? 0.15 : 0.18;
+      const profit = parseFloat((amt * rate * mo / 12).toFixed(2));
       const id = genId();
-      await sb("deposits", { method: "POST", prefer: "return=minimal", body: JSON.stringify({ id, username: user.username, amount: amt, months, rate: rate * 100, profit, active: true, date: nowStr() }) });
-      await sb(`users?username=eq.${user.username}`, { method: "PATCH", body: JSON.stringify({ balance: freshUser.balance - amt }) });
-      await sb("transactions", { method: "POST", prefer: "return=minimal", body: JSON.stringify({ id: genId(), username: user.username, type: "out", amount: -amt, description: `🏦 Вклад на ${months} мес.`, date: nowStr() }) });
-      setUser(u => ({ ...u, balance: freshUser.balance - amt }));
-      setDepForm({ amount: "", months: "6" }); setDepError(""); setLoading(false);
-      notify(`Вклад открыт! Доход: +${fmt(profit)}`); loadDeposits();
-    } catch (e) { setLoading(false); setDepError(e.message); }
+      await sb("deposits", { method: "POST", prefer: "return=minimal", body: JSON.stringify({ id, username: user.username, amount: amt, months: mo, rate: rate*100, profit, active: true, date: nowStr() }) });
+      await sb(`users?username=eq.${user.username}`, { method: "PATCH", body: JSON.stringify({ balance: fu.balance - amt }) });
+      await sb("transactions", { method: "POST", prefer: "return=minimal", body: JSON.stringify({ id: genId(), username: user.username, type: "out", amount: -amt, description: `🏦 Вклад на ${mo} мес.`, date: nowStr() }) });
+      setUser(u => ({ ...u, balance: fu.balance - amt }));
+      setDep({ amount: "", months: "6" }); setDepErr(""); setLoading(false); toast(`Вклад открыт! Доход: +${fmt(profit)}`); loadDep();
+    } catch (e) { setLoading(false); setDepErr(e.message); }
   };
 
-  const handleCloseDeposit = async (dep) => {
-    const daysHeld = (new Date() - parseDepDate(dep.date)) / (1000 * 60 * 60 * 24);
-    const daysRequired = dep.months * 30;
-    const earlyClose = daysHeld < daysRequired;
-    const total = earlyClose ? dep.amount : dep.amount + dep.profit;
+  const doCloseDep = async (d) => {
+    const daysHeld = (new Date() - parseDepDate(d.date)) / 86400000;
+    const daysReq = d.months * 30;
+    const early = daysHeld < daysReq;
+    const total = early ? d.amount : d.amount + d.profit;
     setLoading(true);
     try {
-      await sb(`deposits?id=eq.${dep.id}`, { method: "PATCH", body: JSON.stringify({ active: false }) });
+      await sb(`deposits?id=eq.${d.id}`, { method: "PATCH", body: JSON.stringify({ active: false }) });
       await sb(`users?username=eq.${user.username}`, { method: "PATCH", body: JSON.stringify({ balance: user.balance + total }) });
-      await sb("transactions", { method: "POST", prefer: "return=minimal", body: JSON.stringify({ id: genId(), username: user.username, type: "in", amount: total, description: earlyClose ? `🏦 Досрочное закрытие вклада #${dep.id} (проценты потеряны)` : `🏦 Закрытие вклада #${dep.id} с процентами`, date: nowStr() }) });
+      await sb("transactions", { method: "POST", prefer: "return=minimal", body: JSON.stringify({ id: genId(), username: user.username, type: "in", amount: total, description: early ? `🏦 Досрочное закрытие #${d.id} (без процентов)` : `🏦 Закрытие вклада #${d.id} с процентами`, date: nowStr() }) });
       setUser(u => ({ ...u, balance: u.balance + total }));
-      setLoading(false);
-      notify(earlyClose ? `⚠️ Досрочно! Только ${fmt(dep.amount)} без процентов` : `🎉 Получено ${fmt(total)} с процентами!`);
-      loadDeposits();
-    } catch (e) { setLoading(false); notify(e.message, "error"); }
+      setLoading(false); toast(early ? `⚠️ Досрочно: ${fmt(d.amount)} без процентов` : `🎉 Получено ${fmt(total)}!`); loadDep();
+    } catch (e) { setLoading(false); toast(e.message, "err"); }
   };
 
-  // ── ADMIN ─────────────────────────────────────────────────────────────────
-  const handleAdminAction = async (username, subtract = false) => {
+  // ADMIN
+  const doAdminBalance = async (username, subtract, setExact) => {
     const amt = parseFloat(adminGive.amount);
-    if (!amt) return notify("Введите сумму", "error");
+    if (isNaN(amt) || amt < 0) return toast("Введите корректную сумму", "err");
     try {
-      const [target] = await sb(`users?username=eq.${username}&select=*`);
-      if (!target) return notify("Пользователь не найден", "error");
-      const newBal = subtract ? Math.max(0, target.balance - amt) : target.balance + amt;
+      const [t] = await sb(`users?username=eq.${username}&select=*`);
+      if (!t) return toast("Пользователь не найден", "err");
+      const newBal = setExact ? amt : subtract ? Math.max(0, t.balance - amt) : t.balance + amt;
       await sb(`users?username=eq.${username}`, { method: "PATCH", body: JSON.stringify({ balance: newBal }) });
-      await sb("transactions", { method: "POST", prefer: "return=minimal", body: JSON.stringify({ id: genId(), username, type: subtract ? "out" : "bonus", amount: subtract ? -amt : amt, description: `👑 ${subtract ? "Списано" : "Начислено"} администратором`, date: nowStr() }) });
-      notify(`${subtract ? "Списано" : "Начислено"} ${fmt(amt)}`);
-      setAdminGive({ username: "", amount: "" }); setAdminMenuUser(null); loadAllUsers();
-    } catch (e) { notify(e.message, "error"); }
+      await sb("transactions", { method: "POST", prefer: "return=minimal", body: JSON.stringify({ id: genId(), username, type: subtract ? "out" : "bonus", amount: setExact ? amt : subtract ? -amt : amt, description: `👑 ${setExact ? "Баланс установлен" : subtract ? "Списано" : "Начислено"} администратором`, date: nowStr() }) });
+      toast(`✅ Готово: ${fmt(newBal)}`); setAdminGive({ username: "", amount: "" }); setAdminMenuUser(null); loadUsers();
+    } catch (e) { toast(e.message, "err"); }
   };
 
-  const handleAdminSetBalance = async (username) => {
-    const amt = parseFloat(adminGive.amount);
-    if (isNaN(amt) || amt < 0) return notify("Введите корректную сумму", "error");
-    try {
-      await sb(`users?username=eq.${username}`, { method: "PATCH", body: JSON.stringify({ balance: amt }) });
-      await sb("transactions", { method: "POST", prefer: "return=minimal", body: JSON.stringify({ id: genId(), username, type: "bonus", amount: amt, description: `👑 Баланс установлен администратором: ${fmt(amt)}`, date: nowStr() }) });
-      notify(`Баланс установлен: ${fmt(amt)}`);
-      setAdminGive({ username: "", amount: "" }); setAdminMenuUser(null); loadAllUsers();
-    } catch (e) { notify(e.message, "error"); }
-  };
-
-  const handleAdminReset = async (username) => {
+  const doAdminReset = async (username) => {
     try {
       await sb(`users?username=eq.${username}`, { method: "PATCH", body: JSON.stringify({ balance: 0 }) });
       await sb(`credits?username=eq.${username}&active=eq.true`, { method: "PATCH", body: JSON.stringify({ active: false }) });
       await sb(`deposits?username=eq.${username}&active=eq.true`, { method: "PATCH", body: JSON.stringify({ active: false }) });
       await sb(`transactions?username=eq.${username}`, { method: "DELETE", prefer: "return=minimal" });
-      notify(`Аккаунт @${username} полностью сброшен`);
-      setAdminMenuUser(null); loadAllUsers();
-    } catch (e) { notify(e.message, "error"); }
+      toast(`🔴 @${username} сброшен`); setAdminMenuUser(null); loadUsers();
+    } catch (e) { toast(e.message, "err"); }
   };
 
-  const handleAdminCloseDeposits = async (username) => {
-    try {
-      await sb(`deposits?username=eq.${username}&active=eq.true`, { method: "PATCH", body: JSON.stringify({ active: false }) });
-      notify(`Все вклады @${username} закрыты (без процентов)`);
-      setAdminMenuUser(null); loadAllUsers();
-    } catch (e) { notify(e.message, "error"); }
+  const doAdminBlock = async (username, block) => {
+    try { await sb(`users?username=eq.${username}`, { method: "PATCH", body: JSON.stringify({ is_blocked: block }) }); toast(block ? `🚫 @${username} заблокирован` : `✅ @${username} разблокирован`); setAdminMenuUser(null); loadUsers(); }
+    catch (e) { toast(e.message, "err"); }
   };
 
-  const handleAdminCloseCredits = async (username) => {
-    try {
-      await sb(`credits?username=eq.${username}&active=eq.true`, { method: "PATCH", body: JSON.stringify({ active: false, remaining: 0 }) });
-      notify(`Все кредиты @${username} закрыты`);
-      setAdminMenuUser(null); loadAllUsers();
-    } catch (e) { notify(e.message, "error"); }
+  const doAdminCloseDeps = async (username) => {
+    try { await sb(`deposits?username=eq.${username}&active=eq.true`, { method: "PATCH", body: JSON.stringify({ active: false }) }); toast(`🏦 Вклады @${username} закрыты`); setAdminMenuUser(null); loadUsers(); }
+    catch (e) { toast(e.message, "err"); }
   };
 
-  const handleAdminClearHistory = async (username) => {
-    try {
-      await sb(`transactions?username=eq.${username}`, { method: "DELETE", prefer: "return=minimal" });
-      notify(`История @${username} очищена`);
-      setAdminMenuUser(null);
-    } catch (e) { notify(e.message, "error"); }
+  const doAdminCloseCreds = async (username) => {
+    try { await sb(`credits?username=eq.${username}&active=eq.true`, { method: "PATCH", body: JSON.stringify({ active: false, remaining: 0 }) }); toast(`💳 Кредиты @${username} закрыты`); setAdminMenuUser(null); loadUsers(); }
+    catch (e) { toast(e.message, "err"); }
   };
 
-  const handleAdminBlock = async (username, block) => {
-    try {
-      await sb(`users?username=eq.${username}`, { method: "PATCH", body: JSON.stringify({ is_blocked: block }) });
-      notify(block ? `🚫 @${username} заблокирован` : `✅ @${username} разблокирован`);
-      setAdminMenuUser(null); loadAllUsers();
-    } catch (e) { notify(e.message, "error"); }
+  const doAdminClearHistory = async (username) => {
+    try { await sb(`transactions?username=eq.${username}`, { method: "DELETE", prefer: "return=minimal" }); toast(`📋 История @${username} очищена`); setAdminMenuUser(null); }
+    catch (e) { toast(e.message, "err"); }
   };
 
-  const handleAdminResetPin = async (username) => {
-    localStorage.removeItem(`pin_${username}`);
-    notify(`🔑 PIN @${username} сброшен`);
-    setAdminMenuUser(null);
-  };
+  const doAdminResetPin = (username) => { localStorage.removeItem(`pin_${username}`); toast(`🔑 PIN @${username} сброшен`); setAdminMenuUser(null); };
 
-  const viewUserTx = async (username) => {
-    const txs = await sb(`transactions?username=eq.${username}&order=created_at.desc&limit=30`);
-    setAdminUserTx(txs); setSelectedUser(username); setAdminMenuUser(null);
-  };
+  const viewUserTx = async (username) => { const txs = await sb(`transactions?username=eq.${username}&order=created_at.desc&limit=30`); setAdminUserTx(txs); setSelUser(username); setAdminMenuUser(null); };
 
-  const handleQRScan = (value) => {
-    setShowScanner(false);
-    if (value.startsWith("qazaqbank://transfer/")) {
-      const username = value.replace("qazaqbank://transfer/", "");
-      setTfForm(f => ({ ...f, to: username })); navigate("transfer"); notify(`QR отсканирован: @${username}`);
-    }
-  };
+  const handleQRScan = (v) => { setShowScanner(false); if (v.startsWith("qazaqbank://transfer/")) { const u = v.replace("qazaqbank://transfer/", ""); setTf(f => ({ ...f, to: u })); nav("transfer"); toast(`QR: @${u}`); } };
 
   const isAdmin = user?.is_admin || user?.username === ADMIN_USERNAME;
 
-  if (!session || !user) {
-    return (
-      <div style={S.root}>
-        {notification && <Notif n={notification} />}
-        <div style={S.authWrap}>
-          <div style={S.authCard}>
-            <div style={S.logo}><span style={S.logoIcon}>⛁</span><span style={S.logoText}>QAZAQ<b>BANK</b></span></div>
-            <p style={S.tagline}>Виртуальный банк • Реальный опыт</p>
-            {authPage === "register" && <>
-              <input style={S.inp} placeholder="Полное имя" value={authForm.fullname} onChange={e => setAuthForm({ ...authForm, fullname: e.target.value })} />
-              <input style={S.inp} type="date" value={authForm.birthdate} onChange={e => setAuthForm({ ...authForm, birthdate: e.target.value })} />
-            </>}
-            <input style={S.inp} placeholder="Логин" value={authForm.username} onChange={e => setAuthForm({ ...authForm, username: e.target.value })} />
-            <input style={S.inp} type="password" placeholder="Пароль" value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })}
-              onKeyDown={e => e.key === "Enter" && (authPage === "login" ? handleLogin() : handleRegister())} />
-            {authError && <p style={S.err}>{authError}</p>}
-            <button style={S.btnPrimary} onClick={authPage === "login" ? handleLogin : handleRegister} disabled={loading}>{loading ? "Загрузка..." : authPage === "login" ? "Войти" : "Создать аккаунт"}</button>
-            <button style={S.btnGhost} onClick={() => { setAuthPage(authPage === "login" ? "register" : "login"); setAuthError(""); }}>
-              {authPage === "login" ? "Нет аккаунта? Зарегистрироваться" : "Уже есть аккаунт? Войти"}
-            </button>
-          </div>
+  // ── AUTH SCREEN ───────────────────────────────────────────────────────────
+  if (!session || !user) return (
+    <div style={A.root}>
+      <div style={A.bg1} /><div style={A.bg2} /><div style={A.bg3} />
+      {notif && <Toast n={notif} />}
+      <div style={A.card}>
+        <div style={A.logoWrap}>
+          <div style={A.logoIcon}>⛁</div>
+          <div style={A.logoText}>QAZAQ<b>BANK</b></div>
         </div>
+        <p style={A.tag}>Виртуальный банк нового поколения</p>
+        <div style={A.tabs}>
+          <button style={{ ...A.tab, ...(authPage==="login" ? A.tabOn : {}) }} onClick={() => { setAuthPage("login"); setAuthErr(""); }}>Войти</button>
+          <button style={{ ...A.tab, ...(authPage==="register" ? A.tabOn : {}) }} onClick={() => { setAuthPage("register"); setAuthErr(""); }}>Регистрация</button>
+        </div>
+        {authPage === "register" && <>
+          <Inp placeholder="Полное имя" value={authForm.fullname} onChange={v => setAuthForm({...authForm, fullname: v})} />
+          <Inp type="date" placeholder="Дата рождения" value={authForm.birthdate} onChange={v => setAuthForm({...authForm, birthdate: v})} />
+        </>}
+        <Inp placeholder="Логин" value={authForm.username} onChange={v => setAuthForm({...authForm, username: v})} />
+        <Inp type="password" placeholder="Пароль" value={authForm.password} onChange={v => setAuthForm({...authForm, password: v})} onEnter={authPage==="login" ? doLogin : doRegister} />
+        {authErr && <p style={A.err}>{authErr}</p>}
+        <button style={A.btn} onClick={authPage==="login" ? doLogin : doRegister} disabled={loading}>
+          {loading ? <span style={A.spinner}>⟳</span> : authPage==="login" ? "Войти в банк" : "Создать аккаунт"}
+        </button>
       </div>
-    );
-  }
+    </div>
+  );
 
-  if (pinState === "set") return <PinScreen mode="set" username={session.username} onSuccess={() => setPinState("done")} onCancel={handleLogout} />;
-  if (pinState === "check") return <PinScreen mode="check" username={session.username} onSuccess={() => setPinState("done")} onCancel={handleLogout} />;
+  if (pinState === "set") return <PinScreen mode="set" username={session.username} onSuccess={() => setPinState("done")} onCancel={doLogout} />;
+  if (pinState === "check") return <PinScreen mode="check" username={session.username} onSuccess={() => setPinState("done")} onCancel={doLogout} />;
 
-  const qrValue = `qazaqbank://transfer/${user.username}`;
-  const bottomNav = [["home","🏠","Главная"],["transfer","↗️","Перевод"],["statement","📋","Выписка"],["credit","💳","Кредиты"],["deposit","🏦","Вклады"]];
+  const qrVal = `qazaqbank://transfer/${user.username}`;
+  const tabs = [["home","🏠","Главная"],["transfer","↗️","Перевод"],["statement","📋","Выписка"],["credit","💳","Кредит"],["deposit","🏦","Вклад"]];
 
   return (
     <div style={S.root}>
-      {notification && <Notif n={notification} />}
+      <div style={S.purpleGlow} /><div style={S.blueGlow} />
+      {notif && <Toast n={notif} />}
       {loading && <div style={S.loadBar} />}
       {showScanner && <QRScanner onScan={handleQRScan} onClose={() => setShowScanner(false)} />}
 
+      {/* ── DRAWER ── */}
       {drawerOpen && (
-        <div style={S.overlay} onClick={() => setDrawerOpen(false)}>
-          <div style={S.drawer} onClick={e => e.stopPropagation()}>
-            <div style={S.drawerHeader}>
-              <div style={{ ...S.avatar, background: isAdmin ? "linear-gradient(135deg,#f9ca24,#f0932b)" : "linear-gradient(135deg,#00b894,#00d68f)" }}>{user.fullname[0]}</div>
+        <div style={M.overlay} onClick={() => setDrawerOpen(false)}>
+          <div style={M.sheet} onClick={e => e.stopPropagation()}>
+            <div style={M.sheetHandle} />
+            <div style={M.userRow}>
+              <div style={{ ...M.ava, background: isAdmin ? "linear-gradient(135deg,#f59e0b,#ef4444)" : "linear-gradient(135deg,#8b5cf6,#3b82f6)" }}>{user.fullname[0]}</div>
               <div>
-                <div style={S.drawerName}>{user.fullname} {isAdmin && <span style={S.adminBadge}>ADMIN</span>}</div>
-                <div style={S.drawerLogin}>@{user.username}</div>
-                <div style={S.drawerBal}>{fmt(user.balance)}</div>
+                <div style={M.uname}>{user.fullname} {isAdmin && <span style={M.adminPill}>ADMIN</span>}</div>
+                <div style={M.ulogin}>@{user.username}</div>
+                <div style={M.ubal}>{fmt(user.balance)}</div>
               </div>
             </div>
-            <div style={S.drawerDivider} />
-            <button style={S.drawerBtn} onClick={() => { setShowQR(true); setDrawerOpen(false); }}><span style={S.drawerBtnIcon}>📱</span> Мой QR-код</button>
-            <button style={S.drawerBtn} onClick={() => navigate("cards")}><span style={S.drawerBtnIcon}>💠</span> Мои карты</button>
-            {isAdmin && <button style={S.drawerBtn} onClick={() => navigate("admin")}><span style={S.drawerBtnIcon}>👑</span> Админ панель</button>}
-            <button style={S.drawerBtn} onClick={() => { setPinState("set"); setDrawerOpen(false); }}><span style={S.drawerBtnIcon}>🔐</span> Изменить PIN</button>
-            <div style={S.drawerDivider} />
-            <button style={S.drawerBtnLogout} onClick={handleLogout}>⎋ Выйти из аккаунта</button>
+            <div style={M.divider} />
+            {[
+              [() => { setShowQR(true); setDrawerOpen(false); }, "📱", "Мой QR-код"],
+              [() => nav("cards"), "💠", "Мои карты"],
+              ...(isAdmin ? [[() => nav("admin"), "👑", "Админ панель"]] : []),
+              [() => { setPinState("set"); setDrawerOpen(false); }, "🔐", "Изменить PIN"],
+            ].map(([fn, icon, label], i) => (
+              <button key={i} style={M.item} onClick={fn}><span style={{ fontSize: 20 }}>{icon}</span> {label}</button>
+            ))}
+            <div style={M.divider} />
+            <button style={M.logout} onClick={doLogout}>⎋ Выйти из аккаунта</button>
           </div>
         </div>
       )}
 
+      {/* ── QR MODAL ── */}
       {showQR && (
-        <div style={S.modalOverlay} onClick={() => setShowQR(false)}>
-          <div style={S.modal} onClick={e => e.stopPropagation()}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-              <b style={{ color: "#e8eaf0" }}>📱 Мой QR-код</b>
-              <button style={{ background: "none", border: "none", color: "#ff6b6b", fontSize: 22, cursor: "pointer" }} onClick={() => setShowQR(false)}>✕</button>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-              <QRCode value={qrValue} size={200} />
-              <div style={{ color: "#00d68f", fontWeight: 700, fontSize: 16 }}>@{user.username}</div>
-              <div style={{ color: "#5a6a80", fontSize: 13, textAlign: "center" }}>Попроси друга отсканировать для перевода</div>
+        <div style={M.overlay} onClick={() => setShowQR(false)}>
+          <div style={M.sheet} onClick={e => e.stopPropagation()}>
+            <div style={M.sheetHandle} />
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, paddingBottom: 16 }}>
+              <span style={M.sheetTitle}>📱 Мой QR-код</span>
+              <QRCode value={qrVal} size={220} />
+              <div style={{ color: "#c084fc", fontWeight: 700, fontSize: 18 }}>@{user.username}</div>
+              <div style={{ color: "#6b7280", fontSize: 13, textAlign: "center" }}>Попроси друга отсканировать для перевода</div>
             </div>
           </div>
         </div>
       )}
 
+      {/* ── TOP BAR ── */}
       <div style={S.topBar}>
-        <div style={S.topLogo}>⛁ QAZAQBANK</div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <button style={S.iconBtn} onClick={() => setShowScanner(true)}><span style={{ fontSize: 20 }}>📷</span></button>
+        <div style={S.brand}>⛁ QAZAQBANK</div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button style={S.iconBtn} onClick={() => setShowScanner(true)}>📷</button>
           <button style={S.menuBtn} onClick={() => setDrawerOpen(true)}>
-            <div style={S.burger} /><div style={S.burger} /><div style={S.burger} />
+            <div style={S.bun} /><div style={S.bun} /><div style={S.bun} />
           </button>
         </div>
       </div>
 
-      <div style={S.pageWrap}>
+      {/* ── PAGES ── */}
+      <div style={S.body}>
 
+        {/* HOME */}
         {page === "home" && (
           <div>
-            <h2 style={S.greeting}>Привет, {user.fullname.split(" ")[0]}! 👋</h2>
-            <div style={S.balCard}>
-              <div style={S.balLabel}>ОСНОВНОЙ СЧЁТ</div>
-              <div style={S.balAmt}>{fmt(user.balance)}</div>
-              <div style={S.balRow}><span>**** **** **** {user.card_number?.slice(-4)}</span><span>VISA</span></div>
+            <div style={S.greeting}>
+              <div>
+                <div style={S.greetSub}>Добро пожаловать 👋</div>
+                <div style={S.greetName}>{user.fullname.split(" ")[0]}</div>
+              </div>
+              <button style={S.eyeBtn} onClick={() => setBalHidden(h => !h)}>{balHidden ? "👁️" : "🙈"}</button>
             </div>
-            <div style={S.quickRow}>
-              {[["transfer","↗️","Перевод"],["credit","💳","Кредит"],["deposit","🏦","Вклад"],["statement","📋","Выписка"]].map(([p,icon,label])=>(
-                <button key={p} style={S.quickBtn} onClick={() => navigate(p)}>
-                  <span style={S.quickIcon}>{icon}</span><span style={S.quickLabel}>{label}</span>
+
+            {/* Balance card */}
+            <div style={S.balCard}>
+              <div style={S.balCardGlow} />
+              <div style={S.balTop}>
+                <div>
+                  <div style={S.balCardLabel}>Основной счёт</div>
+                  <div style={S.balCardAmt}>{balHidden ? "••••••" : fmt(user.balance)}</div>
+                </div>
+                <div style={S.visaWrap}><span style={S.visaText}>VISA</span></div>
+              </div>
+              <div style={S.balCardBot}>
+                <span style={S.cardNum}>**** **** **** {user.card_number?.slice(-4)}</span>
+                <span style={S.cardExp}>12/29</span>
+              </div>
+            </div>
+
+            {/* Quick actions */}
+            <div style={S.qRow}>
+              {[["transfer","↗️","Перевод"],["credit","💳","Кредит"],["deposit","🏦","Вклад"],["statement","📋","Выписка"]].map(([p,ic,lb]) => (
+                <button key={p} style={S.qBtn} onClick={() => nav(p)}>
+                  <div style={S.qIcon}>{ic}</div>
+                  <div style={S.qLab}>{lb}</div>
                 </button>
               ))}
             </div>
+
+            {/* Earn */}
             <div style={S.earnCard}>
-              <div style={S.earnTop}>
-                <div><div style={S.secTitle}>💰 Клик-заработок</div><div style={S.earnDesc}>1 клик = 1 ₸ • лимит 100 кликов</div></div>
-                <div style={S.earnCounter}>{clickCount}<span style={S.earnMax}>/100</span></div>
+              <div style={S.earnGlow} />
+              <div style={S.earnHeader}>
+                <div>
+                  <div style={S.earnTitle}>💰 Клик-заработок</div>
+                  <div style={S.earnSub}>1 нажатие = 1 ₸</div>
+                </div>
+                <div style={S.earnProg}>
+                  <div style={S.earnProgVal}>{clicks}</div>
+                  <div style={S.earnProgMax}>/100</div>
+                </div>
               </div>
-              <button style={{ ...S.earnBtn, ...(clickAnim ? { transform: "scale(0.93)" } : {}), ...(earnCooldown ? S.earnOff : {}) }} onClick={handleEarn} disabled={earnCooldown}>
-                {earnCooldown ? "⏳ Перерыв 30 сек..." : "💰  НАЖМИ И ЗАРАБОТАЙ!"}
+              <div style={S.earnBarWrap}><div style={{ ...S.earnBar, width: `${clicks}%` }} /></div>
+              <button style={{ ...S.earnBtn, ...(clickAnim ? { transform: "scale(0.95)" } : {}), ...(cooldown ? S.earnBtnOff : {}) }}
+                onClick={doEarn} disabled={cooldown}>
+                {cooldown ? "⏳ Перерыв 30 сек..." : "💰 НАЖМИ И ЗАРАБОТАЙ!"}
               </button>
             </div>
-            <div style={S.secTitle}>Последние операции</div>
-            <div style={S.txCard}>
-              {txList.length === 0 && <p style={S.empty}>Операций нет</p>}
-              {txList.slice(0, 5).map(tx => <TxRow key={tx.id} tx={tx} />)}
+
+            {/* Recent tx */}
+            <div style={S.section}>
+              <div style={S.sectionTitle}>Последние операции</div>
+              <div style={S.txList}>
+                {txList.length === 0 && <p style={S.empty}>Операций нет</p>}
+                {txList.slice(0,5).map(tx => <TxItem key={tx.id} tx={tx} />)}
+              </div>
             </div>
           </div>
         )}
 
+        {/* TRANSFER */}
         {page === "transfer" && (
           <div>
-            <div style={S.pageTitle}>↗️ Перевод денег</div>
-            <div style={S.card}>
-              <Label>Получатель (логин)</Label>
+            <PageTitle icon="↗️" title="Перевод" />
+            <div style={S.formCard}>
+              <Label>Получатель</Label>
               <div style={{ display: "flex", gap: 8 }}>
-                <input style={{ ...S.inp2, flex: 1 }} placeholder="username" value={tfForm.to} onChange={e => setTfForm({ ...tfForm, to: e.target.value })} />
-                <button style={S.qrBtn} onClick={() => setShowScanner(true)}>📷</button>
+                <Inp2 placeholder="логин получателя" value={tf.to} onChange={v => setTf({...tf, to: v})} flex />
+                <button style={S.qrSmall} onClick={() => setShowScanner(true)}>📷</button>
               </div>
               <Label>Сумма (₸)</Label>
-              <input style={S.inp2} type="number" placeholder="0.00" value={tfForm.amount} onChange={e => setTfForm({ ...tfForm, amount: e.target.value })} />
+              <Inp2 type="number" placeholder="0.00" value={tf.amount} onChange={v => setTf({...tf, amount: v})} />
               <Label>Примечание</Label>
-              <input style={S.inp2} placeholder="За ужин..." value={tfForm.note} onChange={e => setTfForm({ ...tfForm, note: e.target.value })} />
-              {tfError && <p style={S.err}>{tfError}</p>}
-              <p style={S.hint}>Доступно: <b style={{ color: "#00d68f" }}>{fmt(user.balance)}</b></p>
-              <button style={S.btnPrimary} onClick={handleTransfer} disabled={loading}>Отправить перевод</button>
+              <Inp2 placeholder="За ужин, за игру..." value={tf.note} onChange={v => setTf({...tf, note: v})} />
+              {tfErr && <ErrMsg>{tfErr}</ErrMsg>}
+              <div style={S.balHint}>Доступно: <b style={{ color: "#c084fc" }}>{fmt(user.balance)}</b></div>
+              <PrimBtn onClick={doTransfer} loading={loading}>Отправить перевод</PrimBtn>
             </div>
           </div>
         )}
 
+        {/* STATEMENT */}
         {page === "statement" && (
           <div>
-            <div style={S.pageTitle}>📋 Выписка</div>
-            <div style={S.stmtBar}><span>Операций: {txList.length}</span><span style={{ color: "#00d68f", fontWeight: 700 }}>{fmt(user.balance)}</span></div>
-            <div style={S.txCard}>
+            <PageTitle icon="📋" title="Выписка" />
+            <div style={S.stmtMeta}>
+              <span style={{ color: "#6b7280" }}>Операций: {txList.length}</span>
+              <span style={{ color: "#c084fc", fontWeight: 700 }}>{fmt(user.balance)}</span>
+            </div>
+            <div style={S.txList}>
               {txList.length === 0 && <p style={S.empty}>Операций нет</p>}
-              {txList.map(tx => <TxRow key={tx.id} tx={tx} full />)}
+              {txList.map(tx => <TxItem key={tx.id} tx={tx} full />)}
             </div>
           </div>
         )}
 
+        {/* CREDIT */}
         {page === "credit" && (
           <div>
-            <div style={S.pageTitle}>💳 Кредиты</div>
+            <PageTitle icon="💳" title="Кредиты" />
             {credits.map(c => (
-              <div key={c.id} style={S.creditCard}>
-                <div style={S.cardTopRow}><span style={S.cid}>#{c.id}</span><span style={S.badge}>Активный</span></div>
-                <div style={S.bigAmt}>{fmt(c.amount)}</div>
-                <div style={S.cinfo}><span>Остаток: <b style={{ color: "#ff6b6b" }}>{fmt(c.remaining)}</b></span><span>Взнос: {fmt(c.monthly)}/мес</span></div>
-                <div style={S.cinfo}><span>Срок: {c.months} мес.</span><span>Выплат: {c.paid}</span></div>
-                <button style={S.btnRed} onClick={() => handlePayCredit(c)}>Погасить • {fmt(Math.min(c.monthly, c.remaining))}</button>
+              <div key={c.id} style={S.debtCard}>
+                <div style={S.debtGlow} />
+                <div style={S.debtTop}>
+                  <span style={S.debtId}>#{c.id}</span>
+                  <span style={S.debtBadge}>Активный</span>
+                </div>
+                <div style={S.debtAmt}>{fmt(c.amount)}</div>
+                <div style={S.debtRow}><span>Остаток</span><b style={{ color: "#f87171" }}>{fmt(c.remaining)}</b></div>
+                <div style={S.debtRow}><span>Ежемесячно</span><b>{fmt(c.monthly)}</b></div>
+                <div style={S.debtRow}><span>Срок</span><b>{c.months} мес. (оплачено {c.paid})</b></div>
+                <div style={S.debtProg}><div style={{ ...S.debtProgBar, width: `${Math.min(100,(c.paid/c.months)*100)}%` }} /></div>
+                <button style={S.debtBtn} onClick={() => doPayCredit(c)}>Погасить взнос • {fmt(Math.min(c.monthly, c.remaining))}</button>
               </div>
             ))}
-            <div style={S.card}>
-              <div style={S.secTitle}>Оформить кредит</div>
+            <div style={S.formCard}>
+              <div style={S.formTitle}>Оформить кредит</div>
               <Label>Сумма (₸)</Label>
-              <input style={S.inp2} type="number" placeholder="100 000" value={crForm.amount} onChange={e => setCrForm({ ...crForm, amount: e.target.value })} />
+              <Inp2 type="number" placeholder="100 000" value={cr.amount} onChange={v => setCr({...cr, amount: v})} />
               <Label>Срок</Label>
-              <select style={S.sel} value={crForm.months} onChange={e => setCrForm({ ...crForm, months: e.target.value })}>
-                {[6,12,24,36,60].map(m => <option key={m} value={m}>{m} месяцев</option>)}
-              </select>
-              {crForm.amount > 0 && <div style={S.calcBox}>Ставка: <b>18%</b> • Платёж: <b>{fmt(parseFloat(crForm.amount) * (0.18/12) / (1-Math.pow(1+0.18/12,-parseInt(crForm.months))))}</b>/мес</div>}
-              {crError && <p style={S.err}>{crError}</p>}
-              <button style={S.btnPrimary} onClick={handleCredit} disabled={loading}>Оформить кредит</button>
+              <Sel value={cr.months} onChange={v => setCr({...cr, months: v})} options={[6,12,24,36,60].map(m => [m, `${m} месяцев`])} />
+              {cr.amount > 0 && <CalcBox>Ставка: <b>18%</b> • Платёж: <b>{fmt(parseFloat(cr.amount)*(0.18/12)/(1-Math.pow(1+0.18/12,-parseInt(cr.months))))}</b>/мес</CalcBox>}
+              {crErr && <ErrMsg>{crErr}</ErrMsg>}
+              <PrimBtn onClick={doCredit} loading={loading}>Оформить кредит</PrimBtn>
             </div>
           </div>
         )}
 
+        {/* DEPOSIT */}
         {page === "deposit" && (
           <div>
-            <div style={S.pageTitle}>🏦 Вклады</div>
+            <PageTitle icon="🏦" title="Вклады" />
             {deposits.map(d => {
-              const daysHeld = (new Date() - parseDepDate(d.date)) / (1000 * 60 * 60 * 24);
-              const daysRequired = d.months * 30;
-              const canClose = daysHeld >= daysRequired;
-              const daysLeft = Math.ceil(daysRequired - daysHeld);
+              const dh = (new Date() - parseDepDate(d.date)) / 86400000;
+              const dr = d.months * 30;
+              const ok = dh >= dr;
               return (
-                <div key={d.id} style={{ ...S.creditCard, borderColor: "#00d68f33" }}>
-                  <div style={S.cardTopRow}><span style={S.cid}>#{d.id}</span><span style={{ ...S.badge, background: "#00d68f22", color: "#00d68f" }}>Активный</span></div>
-                  <div style={S.bigAmt}>{fmt(d.amount)}</div>
-                  <div style={S.cinfo}><span>Ставка: <b style={{ color: "#00d68f" }}>{d.rate}%</b></span><span>Срок: {d.months} мес.</span></div>
-                  <div style={S.cinfo}><span>Доход: <b style={{ color: "#00d68f" }}>+{fmt(d.profit)}</b></span><span>{canClose ? "✅ Готов к закрытию" : `⏳ ${daysLeft} дн. осталось`}</span></div>
-                  <button style={canClose ? S.btnGreen : S.btnRed} onClick={() => handleCloseDeposit(d)}>
-                    {canClose ? `✅ Закрыть и получить +${fmt(d.profit)}` : `⚠️ Досрочно (без процентов)`}
+                <div key={d.id} style={S.savCard}>
+                  <div style={S.savGlow} />
+                  <div style={S.debtTop}>
+                    <span style={S.debtId}>#{d.id}</span>
+                    <span style={{ ...S.debtBadge, background: "#10b98122", color: "#10b981" }}>Активный</span>
+                  </div>
+                  <div style={{ ...S.debtAmt, color: "#10b981" }}>{fmt(d.amount)}</div>
+                  <div style={S.debtRow}><span>Ставка</span><b style={{ color: "#10b981" }}>{d.rate}%</b></div>
+                  <div style={S.debtRow}><span>Доход</span><b style={{ color: "#10b981" }}>+{fmt(d.profit)}</b></div>
+                  <div style={S.debtRow}><span>{ok ? "✅ Готов к закрытию" : `⏳ Осталось ${Math.ceil(dr-dh)} дн.`}</span></div>
+                  <div style={S.debtProg}><div style={{ ...S.debtProgBar, width: `${Math.min(100,(dh/dr)*100)}%`, background: "linear-gradient(90deg,#10b981,#34d399)" }} /></div>
+                  <button style={{ ...S.debtBtn, background: ok ? "#10b98122" : "#6b728022", color: ok ? "#10b981" : "#9ca3af", borderColor: ok ? "#10b98144" : "#37415144" }} onClick={() => doCloseDep(d)}>
+                    {ok ? `✅ Закрыть +${fmt(d.profit)}` : `⚠️ Досрочно (без процентов)`}
                   </button>
                 </div>
               );
             })}
-            <div style={S.card}>
-              <div style={S.secTitle}>Открыть вклад</div>
+            <div style={S.formCard}>
+              <div style={S.formTitle}>Открыть вклад</div>
               <Label>Сумма (₸)</Label>
-              <input style={S.inp2} type="number" placeholder="10 000" value={depForm.amount} onChange={e => setDepForm({ ...depForm, amount: e.target.value })} />
+              <Inp2 type="number" placeholder="10 000" value={dep.amount} onChange={v => setDep({...dep, amount: v})} />
               <Label>Срок</Label>
-              <select style={S.sel} value={depForm.months} onChange={e => setDepForm({ ...depForm, months: e.target.value })}>
-                <option value="3">3 мес. — 10%</option>
-                <option value="6">6 мес. — 12%</option>
-                <option value="12">12 мес. — 15%</option>
-                <option value="24">24 мес. — 18%</option>
-              </select>
-              {depForm.amount > 0 && <div style={S.calcBox}>Доход: <b style={{ color: "#00d68f" }}>+{fmt(parseFloat(depForm.amount||0)*(depForm.months<=3?0.10:depForm.months<=6?0.12:depForm.months<=12?0.15:0.18)*parseInt(depForm.months)/12)}</b></div>}
-              <p style={S.hint}>Доступно: <b style={{ color: "#00d68f" }}>{fmt(user.balance)}</b></p>
-              {depError && <p style={S.err}>{depError}</p>}
-              <button style={S.btnPrimary} onClick={handleDeposit} disabled={loading}>Открыть вклад</button>
+              <Sel value={dep.months} onChange={v => setDep({...dep, months: v})} options={[["3","3 мес. — 10%"],["6","6 мес. — 12%"],["12","12 мес. — 15%"],["24","24 мес. — 18%"]]} />
+              {dep.amount > 0 && <CalcBox>Доход: <b style={{ color: "#10b981" }}>+{fmt(parseFloat(dep.amount||0)*(dep.months<=3?0.10:dep.months<=6?0.12:dep.months<=12?0.15:0.18)*parseInt(dep.months)/12)}</b></CalcBox>}
+              <div style={S.balHint}>Доступно: <b style={{ color: "#c084fc" }}>{fmt(user.balance)}</b></div>
+              {depErr && <ErrMsg>{depErr}</ErrMsg>}
+              <PrimBtn onClick={doDep} loading={loading} green>Открыть вклад</PrimBtn>
             </div>
           </div>
         )}
 
+        {/* CARDS */}
         {page === "cards" && (
           <div>
-            <div style={S.pageTitle}>💠 Мои карты</div>
-            <div style={S.virtualCard}>
-              <div style={S.vcChip}>▬▬</div>
-              <div style={S.vcNum}>{user.card_number?.match(/.{1,4}/g)?.join("  ")}</div>
-              <div style={S.vcRow}>
-                <div><div style={S.vcLbl}>Владелец</div><div style={S.vcName}>{user.fullname.toUpperCase()}</div></div>
-                <div><div style={S.vcLbl}>Срок</div><div style={S.vcName}>12/29</div></div>
-                <div style={S.vcVisa}>VISA</div>
+            <PageTitle icon="💠" title="Мои карты" />
+            <div style={S.card3d}>
+              <div style={S.card3dGlow} />
+              <div style={S.chipRow}><div style={S.chip} /></div>
+              <div style={S.cardNumBig}>{user.card_number?.match(/.{1,4}/g)?.join("  ")}</div>
+              <div style={S.cardBot}>
+                <div>
+                  <div style={S.cardMiniLabel}>Владелец</div>
+                  <div style={S.cardMiniVal}>{user.fullname.toUpperCase()}</div>
+                </div>
+                <div>
+                  <div style={S.cardMiniLabel}>Срок</div>
+                  <div style={S.cardMiniVal}>12/29</div>
+                </div>
+                <div style={S.cardVisaBig}>VISA</div>
               </div>
             </div>
-            <div style={S.card}>
-              {[["Номер",user.card_number?.match(/.{1,4}/g)?.join(" ")],["CVV","•••"],["Срок","12/29"],["Статус","✅ Активна"],["Тип","VISA Virtual"]].map(([k,v])=>(
-                <div key={k} style={{ color: "#aaa", fontSize: 15, marginBottom: 12, display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: "#5a6a80" }}>{k}</span><b style={{ color: "#e8eaf0" }}>{v}</b>
-                </div>
+            <div style={S.formCard}>
+              {[["Номер",user.card_number?.match(/.{1,4}/g)?.join(" ")],["CVV","•••"],["Срок","12/29"],["Статус","✅ Активна"],["Тип","VISA Virtual"]].map(([k,v]) => (
+                <div key={k} style={S.infoRow}><span style={S.infoKey}>{k}</span><span style={S.infoVal}>{v}</span></div>
               ))}
             </div>
           </div>
         )}
 
+        {/* ADMIN */}
         {page === "admin" && isAdmin && (
           <div>
-            <div style={S.pageTitle}>👑 Админ панель</div>
-
-            {/* Tabs */}
+            <PageTitle icon="👑" title="Админ панель" />
             <div style={S.tabRow}>
-              <button style={{ ...S.tabBtn, ...(adminTab === "users" ? S.tabBtnActive : {}) }} onClick={() => setAdminTab("users")}>👥 Пользователи</button>
-              <button style={{ ...S.tabBtn, ...(adminTab === "actions" ? S.tabBtnActive : {}) }} onClick={() => setAdminTab("actions")}>⚙️ Действия</button>
+              <button style={{ ...S.tabBtn, ...(adminTab==="users"?S.tabOn:{}) }} onClick={() => setAdminTab("users")}>👥 Пользователи</button>
+              <button style={{ ...S.tabBtn, ...(adminTab==="actions"?S.tabOn:{}) }} onClick={() => setAdminTab("actions")}>⚙️ Действия</button>
             </div>
 
             {adminTab === "actions" && (
-              <div style={S.card}>
-                <div style={S.secTitle}>Управление балансом</div>
-                <Label>Логин пользователя</Label>
-                <input style={S.inp2} placeholder="username" value={adminGive.username} onChange={e => setAdminGive({ ...adminGive, username: e.target.value })} />
+              <div style={S.formCard}>
+                <div style={S.formTitle}>Управление балансом</div>
+                <Label>Логин</Label>
+                <Inp2 placeholder="username" value={adminGive.username} onChange={v => setAdminGive({...adminGive, username: v})} />
                 <Label>Сумма (₸)</Label>
-                <input style={S.inp2} type="number" placeholder="0" value={adminGive.amount} onChange={e => setAdminGive({ ...adminGive, amount: e.target.value })} />
+                <Inp2 type="number" placeholder="0" value={adminGive.amount} onChange={v => setAdminGive({...adminGive, amount: v})} />
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button style={{ ...S.btnPrimary, flex: 1, fontSize: 13 }} onClick={() => handleAdminAction(adminGive.username, false)}>➕ Начислить</button>
-                  <button style={{ ...S.btnPrimary, flex: 1, fontSize: 13, background: "linear-gradient(135deg,#ff4d4d,#ff6b6b)" }} onClick={() => handleAdminAction(adminGive.username, true)}>➖ Списать</button>
-                  <button style={{ ...S.btnPrimary, flex: 1, fontSize: 13, background: "linear-gradient(135deg,#6c5ce7,#a29bfe)" }} onClick={() => handleAdminSetBalance(adminGive.username)}>🎯 Установить</button>
+                  {[["➕ Начислить","#8b5cf6",false,false],["➖ Списать","#ef4444",true,false],["🎯 Установить","#3b82f6",false,true]].map(([lb,cl,sub,ex]) => (
+                    <button key={lb} style={{ ...S.adminActBtn, background: cl+"22", color: cl, border: `1px solid ${cl}44` }} onClick={() => doAdminBalance(adminGive.username,sub,ex)}>{lb}</button>
+                  ))}
                 </div>
-                <div style={S.drawerDivider} />
-                <div style={S.secTitle}>Управление аккаунтом</div>
+                <div style={S.divider} />
+                <div style={S.formTitle}>Управление аккаунтом</div>
                 <Label>Логин для действий</Label>
-                <input style={S.inp2} placeholder="username" value={adminGive.username} onChange={e => setAdminGive({ ...adminGive, username: e.target.value })} />
+                <Inp2 placeholder="username" value={adminGive.username} onChange={v => setAdminGive({...adminGive, username: v})} />
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-                  <button style={{ ...S.adminActionBtn, background: "#ff6b6b22", color: "#ff6b6b", borderColor: "#ff6b6b44" }} onClick={() => handleAdminReset(adminGive.username)}>🔴 Полный сброс</button>
-                  <button style={{ ...S.adminActionBtn, background: "#fd79a822", color: "#fd79a8", borderColor: "#fd79a844" }} onClick={() => handleAdminCloseDeposits(adminGive.username)}>🏦 Закрыть вклады</button>
-                  <button style={{ ...S.adminActionBtn, background: "#fdcb6e22", color: "#fdcb6e", borderColor: "#fdcb6e44" }} onClick={() => handleAdminCloseCredits(adminGive.username)}>💳 Закрыть кредиты</button>
-                  <button style={{ ...S.adminActionBtn, background: "#74b9ff22", color: "#74b9ff", borderColor: "#74b9ff44" }} onClick={() => handleAdminClearHistory(adminGive.username)}>📋 Очистить историю</button>
-                  <button style={{ ...S.adminActionBtn, background: "#ff767522", color: "#ff7675", borderColor: "#ff767544" }} onClick={() => handleAdminBlock(adminGive.username, true)}>🚫 Заблокировать</button>
-                  <button style={{ ...S.adminActionBtn, background: "#00d68f22", color: "#00d68f", borderColor: "#00d68f44" }} onClick={() => handleAdminBlock(adminGive.username, false)}>✅ Разблокировать</button>
-                  <button style={{ ...S.adminActionBtn, background: "#a29bfe22", color: "#a29bfe", borderColor: "#a29bfe44" }} onClick={() => handleAdminResetPin(adminGive.username)}>🔑 Сбросить PIN</button>
+                  {[
+                    ["🔴 Сбросить",() => doAdminReset(adminGive.username),"#ef4444"],
+                    ["🏦 Закрыть вклады",() => doAdminCloseDeps(adminGive.username),"#f59e0b"],
+                    ["💳 Закрыть кредиты",() => doAdminCloseCreds(adminGive.username),"#f97316"],
+                    ["📋 Очистить историю",() => doAdminClearHistory(adminGive.username),"#3b82f6"],
+                    ["🚫 Заблокировать",() => doAdminBlock(adminGive.username,true),"#ef4444"],
+                    ["✅ Разблокировать",() => doAdminBlock(adminGive.username,false),"#10b981"],
+                    ["🔑 Сбросить PIN",() => doAdminResetPin(adminGive.username),"#8b5cf6"],
+                  ].map(([lb,fn,cl]) => (
+                    <button key={lb} style={{ ...S.adminActBtn, background: cl+"22", color: cl, border: `1px solid ${cl}44` }} onClick={fn}>{lb}</button>
+                  ))}
                 </div>
               </div>
             )}
 
             {adminTab === "users" && (
               <div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={S.secTitle}>Всего: {allUsers.length}</div>
-                  <button style={{ background: "none", border: "none", color: "#00d68f", fontSize: 13, cursor: "pointer" }} onClick={loadAllUsers}>🔄 Обновить</button>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                  <span style={{ color: "#9ca3af", fontSize: 14 }}>Всего: {allUsers.length}</span>
+                  <button style={{ background: "none", border: "none", color: "#c084fc", fontSize: 13, cursor: "pointer" }} onClick={loadUsers}>🔄 Обновить</button>
                 </div>
-                <div style={S.txCard}>
+                <div style={S.userList}>
                   {allUsers.map(u => {
-                    const online = isOnline(u.last_seen);
+                    const on = isOnline(u.last_seen);
                     return (
-                      <div key={u.username} style={{ ...S.txRow, flexWrap: "wrap", position: "relative" }}>
+                      <div key={u.username} style={S.userRow}>
                         <div style={{ position: "relative", flexShrink: 0 }}>
-                          <div style={{ ...S.avatar, width: 40, height: 40, fontSize: 16, background: u.is_admin ? "linear-gradient(135deg,#f9ca24,#f0932b)" : u.is_blocked ? "#2a2a2a" : "linear-gradient(135deg,#00b894,#00d68f)" }}>{u.fullname[0]}</div>
-                          <div style={{ position: "absolute", bottom: 0, right: 0, width: 11, height: 11, borderRadius: "50%", background: u.is_blocked ? "#636e72" : online ? "#00d68f" : "#ff6b6b", border: "2px solid #111827" }} />
+                          <div style={{ ...S.uAva, background: u.is_admin ? "linear-gradient(135deg,#f59e0b,#ef4444)" : u.is_blocked ? "#374151" : "linear-gradient(135deg,#8b5cf6,#3b82f6)" }}>{u.fullname[0]}</div>
+                          <div style={{ position: "absolute", bottom: 0, right: 0, width: 10, height: 10, borderRadius: "50%", background: u.is_blocked ? "#6b7280" : on ? "#10b981" : "#ef4444", border: "2px solid #111827" }} />
                         </div>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={S.txDesc}>{u.fullname} {u.is_admin && <span style={S.adminBadge}>ADMIN</span>} {u.is_blocked && <span style={{ ...S.adminBadge, background: "#636e72" }}>БЛОК</span>}</div>
-                          <div style={S.txDate}>@{u.username} • <span style={{ color: u.is_blocked ? "#636e72" : online ? "#00d68f" : "#ff6b6b" }}>{u.is_blocked ? "заблокирован" : online ? "онлайн" : "офлайн"}</span></div>
+                          <div style={S.uName}>{u.fullname} {u.is_admin && <span style={S.adminPill2}>ADMIN</span>} {u.is_blocked && <span style={{ ...S.adminPill2, background: "#6b728022", color: "#9ca3af" }}>БЛОК</span>}</div>
+                          <div style={S.uMeta}>@{u.username} · <span style={{ color: u.is_blocked ? "#6b7280" : on ? "#10b981" : "#ef4444" }}>{u.is_blocked ? "заблокирован" : on ? "онлайн" : "офлайн"}</span></div>
                         </div>
-                        <div style={{ color: "#00d68f", fontWeight: 700, fontSize: 13 }}>{fmt(u.balance)}</div>
-                        <button style={S.dotsBtn} onClick={() => setAdminMenuUser(adminMenuUser === u.username ? null : u.username)}>⋮</button>
+                        <div style={S.uBal}>{fmt(u.balance)}</div>
+                        <button style={S.dotsBtn} onClick={() => setAdminMenuUser(adminMenuUser===u.username?null:u.username)}>⋮</button>
                         {adminMenuUser === u.username && (
-                          <div style={S.adminDropdown}>
-                            <button style={S.adminDropItem} onClick={() => { setAdminGive(g => ({ ...g, username: u.username })); setAdminMenuUser(null); setAdminTab("actions"); }}>✏️ Выбрать пользователя</button>
-                            <button style={S.adminDropItem} onClick={() => viewUserTx(u.username)}>📋 История операций</button>
-                            <button style={{ ...S.adminDropItem, color: "#00d68f" }} onClick={() => { setAdminGive({ username: u.username, amount: adminGive.amount }); handleAdminAction(u.username, false); }}>➕ Начислить</button>
-                            <button style={{ ...S.adminDropItem, color: "#ff6b6b" }} onClick={() => { setAdminGive({ username: u.username, amount: adminGive.amount }); handleAdminAction(u.username, true); }}>➖ Списать</button>
-                            <button style={{ ...S.adminDropItem, color: "#fd79a8" }} onClick={() => handleAdminCloseDeposits(u.username)}>🏦 Закрыть вклады</button>
-                            <button style={{ ...S.adminDropItem, color: "#fdcb6e" }} onClick={() => handleAdminCloseCredits(u.username)}>💳 Закрыть кредиты</button>
-                            <button style={{ ...S.adminDropItem, color: "#74b9ff" }} onClick={() => handleAdminClearHistory(u.username)}>📋 Очистить историю</button>
-                            <button style={{ ...S.adminDropItem, color: "#ff4d4d" }} onClick={() => handleAdminReset(u.username)}>🔴 Полный сброс</button>
-                            {u.is_blocked
-                              ? <button style={{ ...S.adminDropItem, color: "#00d68f" }} onClick={() => handleAdminBlock(u.username, false)}>✅ Разблокировать</button>
-                              : <button style={{ ...S.adminDropItem, color: "#ff7675" }} onClick={() => handleAdminBlock(u.username, true)}>🚫 Заблокировать</button>
-                            }
-                            <button style={{ ...S.adminDropItem, color: "#a29bfe" }} onClick={() => handleAdminResetPin(u.username)}>🔑 Сбросить PIN</button>
+                          <div style={S.drop}>
+                            {[
+                              ["✏️ Выбрать",() => { setAdminGive(g=>({...g,username:u.username})); setAdminMenuUser(null); setAdminTab("actions"); },"#e5e7eb"],
+                              ["📋 История",() => viewUserTx(u.username),"#e5e7eb"],
+                              ["➕ Начислить",() => { setAdminGive({username:u.username,amount:adminGive.amount}); doAdminBalance(u.username,false,false); },"#c084fc"],
+                              ["➖ Списать",() => { setAdminGive({username:u.username,amount:adminGive.amount}); doAdminBalance(u.username,true,false); },"#f87171"],
+                              ["🏦 Закрыть вклады",() => doAdminCloseDeps(u.username),"#fbbf24"],
+                              ["💳 Закрыть кредиты",() => doAdminCloseCreds(u.username),"#fb923c"],
+                              ["📋 Очистить историю",() => doAdminClearHistory(u.username),"#60a5fa"],
+                              ["🔴 Полный сброс",() => doAdminReset(u.username),"#f87171"],
+                              u.is_blocked ? ["✅ Разблокировать",() => doAdminBlock(u.username,false),"#34d399"] : ["🚫 Заблокировать",() => doAdminBlock(u.username,true),"#f87171"],
+                              ["🔑 Сбросить PIN",() => doAdminResetPin(u.username),"#a78bfa"],
+                            ].map(([lb,fn,cl]) => (
+                              <button key={lb} style={{ ...S.dropItem, color: cl }} onClick={fn}>{lb}</button>
+                            ))}
                           </div>
                         )}
                       </div>
@@ -801,28 +793,31 @@ export default function App() {
           </div>
         )}
 
-        <div style={{ height: 90 }} />
+        <div style={{ height: 96 }} />
       </div>
 
-      <div style={S.bottomNav}>
-        {bottomNav.map(([p,icon,label]) => (
-          <button key={p} style={{ ...S.bottomBtn, ...(page === p ? S.bottomBtnActive : {}) }} onClick={() => navigate(p)}>
-            <span style={S.bottomIcon}>{icon}</span>
-            <span style={S.bottomLabel}>{label}</span>
+      {/* ── BOTTOM NAV ── */}
+      <div style={S.nav}>
+        {tabs.map(([p,ic,lb]) => (
+          <button key={p} style={{ ...S.navBtn, ...(page===p?S.navBtnOn:{}) }} onClick={() => nav(p)}>
+            <span style={S.navIc}>{ic}</span>
+            <span style={{ ...S.navLb, color: page===p?"#c084fc":"#4b5563" }}>{lb}</span>
           </button>
         ))}
       </div>
 
-      {selectedUser && (
-        <div style={S.modalOverlay}>
-          <div style={S.modal}>
+      {/* USER TX MODAL */}
+      {selUser && (
+        <div style={M.overlay}>
+          <div style={M.sheet}>
+            <div style={M.sheetHandle} />
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <b style={{ color: "#e8eaf0" }}>История @{selectedUser}</b>
-              <button style={{ background: "none", border: "none", color: "#ff6b6b", fontSize: 22, cursor: "pointer" }} onClick={() => setSelectedUser(null)}>✕</button>
+              <span style={M.sheetTitle}>История @{selUser}</span>
+              <button style={M.closeBtn} onClick={() => setSelUser(null)}>✕</button>
             </div>
-            <div style={{ maxHeight: "60vh", overflowY: "auto" }}>
-              {adminUserTx.map(tx => <TxRow key={tx.id} tx={tx} full />)}
-              {adminUserTx.length === 0 && <p style={S.empty}>Нет операций</p>}
+            <div style={{ maxHeight: "55vh", overflowY: "auto" }}>
+              {adminUserTx.map(tx => <TxItem key={tx.id} tx={tx} full />)}
+              {!adminUserTx.length && <p style={S.empty}>Нет операций</p>}
             </div>
           </div>
         </div>
@@ -831,111 +826,184 @@ export default function App() {
   );
 }
 
-function TxRow({ tx, full }) {
+// ── MICRO COMPONENTS ──────────────────────────────────────────────────────────
+function Toast({ n }) { return <div style={{ position: "fixed", top: 20, left: "50%", transform: "translateX(-50%)", zIndex: 9999, padding: "12px 24px", borderRadius: 50, background: n.type === "err" ? "linear-gradient(135deg,#dc2626,#ef4444)" : "linear-gradient(135deg,#7c3aed,#3b82f6)", color: "#fff", fontWeight: 600, fontSize: 14, boxShadow: "0 8px 32px #0008", whiteSpace: "nowrap", backdropFilter: "blur(10px)" }}>{n.msg}</div>; }
+function Inp({ type="text", placeholder, value, onChange, onEnter }) { return <input style={A.inp} type={type} placeholder={placeholder} value={value} onChange={e=>onChange(e.target.value)} onKeyDown={e=>e.key==="Enter"&&onEnter&&onEnter()} />; }
+function Inp2({ type="text", placeholder, value, onChange, flex }) { return <input style={{ ...S.inp2, ...(flex?{flex:1}:{}) }} type={type} placeholder={placeholder} value={value} onChange={e=>onChange(e.target.value)} />; }
+function Sel({ value, onChange, options }) { return <select style={S.sel} value={value} onChange={e=>onChange(e.target.value)}>{options.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select>; }
+function Label({ children }) { return <div style={S.label}>{children}</div>; }
+function ErrMsg({ children }) { return <p style={{ color: "#f87171", fontSize: 13, margin: "6px 0" }}>{children}</p>; }
+function CalcBox({ children }) { return <div style={S.calcBox}>{children}</div>; }
+function PrimBtn({ children, onClick, loading, green }) { return <button style={{ ...S.primBtn, ...(green ? S.primBtnGreen : {}) }} onClick={onClick} disabled={loading}>{loading ? "⟳" : children}</button>; }
+function PageTitle({ icon, title }) { return <div style={S.pageTitle}><span>{icon}</span> {title}</div>; }
+function TxItem({ tx, full }) {
   const pos = tx.amount > 0;
   return (
-    <div style={S.txRow}>
-      <div style={{ ...S.txBadge, background: pos ? "#00d68f22" : "#ff6b6b22", color: pos ? "#00d68f" : "#ff6b6b" }}>{pos ? "+" : "−"}</div>
-      <div style={S.txMeta}>
+    <div style={S.txItem}>
+      <div style={{ ...S.txDot, background: pos ? "#10b98122" : "#ef444422", color: pos ? "#10b981" : "#ef4444" }}>{pos ? "↙" : "↗"}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
         <div style={S.txDesc}>{tx.description}</div>
-        <div style={S.txDate}>{full && `#${tx.id} • `}{tx.date}</div>
+        <div style={S.txDate}>{full && `#${tx.id} · `}{tx.date}</div>
       </div>
-      <div style={{ ...S.txAmt, color: pos ? "#00d68f" : "#ff6b6b" }}>{pos ? "+" : ""}{new Intl.NumberFormat("kk-KZ",{minimumFractionDigits:2}).format(Math.abs(tx.amount))} ₸</div>
+      <div style={{ ...S.txAmt, color: pos ? "#10b981" : "#ef4444" }}>{pos?"+":""}{new Intl.NumberFormat("kk-KZ",{minimumFractionDigits:2}).format(Math.abs(tx.amount))} ₸</div>
     </div>
   );
 }
-function Label({ children }) { return <div style={{ fontSize: 11, color: "#5a6a80", marginBottom: 6, marginTop: 14, textTransform: "uppercase", letterSpacing: 1 }}>{children}</div>; }
-function Notif({ n }) { return <div style={{ ...S.notif, background: n.type === "error" ? "#ff4d4d" : "#00d68f" }}>{n.msg}</div>; }
+
+// ── STYLES ────────────────────────────────────────────────────────────────────
+const A = {
+  root: { minHeight: "100vh", background: "#0d0118", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, position: "relative", overflow: "hidden", fontFamily: "'Segoe UI',system-ui,sans-serif", color: "#f3f4f6" },
+  bg1: { position: "absolute", width: 500, height: 500, borderRadius: "50%", background: "radial-gradient(circle,#7c3aed33,transparent 70%)", top: "-100px", left: "-100px" },
+  bg2: { position: "absolute", width: 400, height: 400, borderRadius: "50%", background: "radial-gradient(circle,#3b82f633,transparent 70%)", bottom: "-100px", right: "-100px" },
+  bg3: { position: "absolute", width: 300, height: 300, borderRadius: "50%", background: "radial-gradient(circle,#ec489933,transparent 70%)", top: "40%", right: "10%" },
+  card: { position: "relative", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 28, padding: "40px 28px", width: "100%", maxWidth: 400, backdropFilter: "blur(20px)", boxShadow: "0 25px 80px #0009" },
+  logoWrap: { display: "flex", alignItems: "center", gap: 12, marginBottom: 6 },
+  logoIcon: { fontSize: 36, filter: "drop-shadow(0 0 16px #a855f7)" },
+  logoText: { fontSize: 22, letterSpacing: 3, background: "linear-gradient(135deg,#c084fc,#818cf8)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" },
+  tag: { color: "#6b7280", fontSize: 13, marginBottom: 28 },
+  tabs: { display: "flex", background: "rgba(255,255,255,0.05)", borderRadius: 14, padding: 4, marginBottom: 24, gap: 4 },
+  tab: { flex: 1, padding: "10px", borderRadius: 10, border: "none", background: "transparent", color: "#6b7280", fontSize: 14, fontWeight: 600, cursor: "pointer" },
+  tabOn: { background: "linear-gradient(135deg,#7c3aed,#3b82f6)", color: "#fff", boxShadow: "0 4px 12px #7c3aed44" },
+  inp: { width: "100%", padding: "14px 16px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 14, color: "#f3f4f6", fontSize: 15, marginBottom: 12, boxSizing: "border-box", outline: "none", backdropFilter: "blur(10px)" },
+  err: { color: "#f87171", fontSize: 13, margin: "0 0 12px" },
+  btn: { width: "100%", padding: 15, background: "linear-gradient(135deg,#7c3aed,#3b82f6)", border: "none", borderRadius: 14, color: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer", marginTop: 8, boxShadow: "0 8px 24px #7c3aed44" },
+  spinner: { display: "inline-block", animation: "spin 1s linear infinite" },
+};
+
+const M = {
+  overlay: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 300, display: "flex", alignItems: "flex-end", backdropFilter: "blur(4px)" },
+  sheet: { background: "linear-gradient(180deg,#1a0533,#0d0118)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "24px 24px 0 0", padding: "16px 24px 40px", width: "100%", maxHeight: "85vh", overflowY: "auto" },
+  sheetHandle: { width: 40, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.2)", margin: "0 auto 20px" },
+  sheetTitle: { fontSize: 17, fontWeight: 700, color: "#f3f4f6" },
+  closeBtn: { background: "none", border: "none", color: "#6b7280", fontSize: 20, cursor: "pointer" },
+  userRow: { display: "flex", gap: 14, alignItems: "center", marginBottom: 12 },
+  ava: { width: 52, height: 52, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, fontSize: 22, color: "#fff", flexShrink: 0, boxShadow: "0 4px 16px #0006" },
+  uname: { fontSize: 15, fontWeight: 700, color: "#f3f4f6" },
+  ulogin: { fontSize: 12, color: "#6b7280" },
+  ubal: { fontSize: 16, fontWeight: 800, background: "linear-gradient(135deg,#c084fc,#818cf8)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", marginTop: 4 },
+  divider: { height: 1, background: "rgba(255,255,255,0.06)", margin: "12px 0" },
+  item: { display: "flex", alignItems: "center", gap: 12, padding: "13px 4px", border: "none", background: "transparent", color: "#d1d5db", fontSize: 15, cursor: "pointer", width: "100%" },
+  logout: { display: "flex", alignItems: "center", gap: 12, padding: "13px 4px", border: "none", background: "transparent", color: "#f87171", fontSize: 15, cursor: "pointer", marginTop: "auto", width: "100%" },
+  adminPill: { background: "linear-gradient(135deg,#f59e0b,#ef4444)", color: "#fff", fontSize: 9, fontWeight: 800, padding: "2px 7px", borderRadius: 20, marginLeft: 6, verticalAlign: "middle" },
+};
 
 const S = {
-  root: { minHeight: "100vh", background: "#0a0d14", color: "#e8eaf0", fontFamily: "'Segoe UI', system-ui, sans-serif", maxWidth: 480, margin: "0 auto", position: "relative" },
-  notif: { position: "fixed", top: 16, left: "50%", transform: "translateX(-50%)", zIndex: 9999, padding: "12px 24px", borderRadius: 30, color: "#fff", fontWeight: 600, fontSize: 14, boxShadow: "0 4px 20px #0008", whiteSpace: "nowrap" },
-  loadBar: { position: "fixed", top: 0, left: 0, right: 0, height: 3, background: "linear-gradient(90deg,#00b894,#00d68f)", zIndex: 9999 },
-  authWrap: { display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", padding: 24 },
-  authCard: { background: "#111827", border: "1px solid #1f2d44", borderRadius: 24, padding: "40px 28px", width: "100%", boxShadow: "0 20px 80px #000a" },
-  logo: { display: "flex", alignItems: "center", gap: 10, marginBottom: 6 },
-  logoIcon: { fontSize: 30 }, logoText: { fontSize: 20, letterSpacing: 2 },
-  tagline: { color: "#5a6a80", fontSize: 13, marginBottom: 24 },
-  inp: { width: "100%", padding: "14px 16px", background: "#0d1929", border: "1px solid #1f2d44", borderRadius: 12, color: "#e8eaf0", fontSize: 16, marginBottom: 12, boxSizing: "border-box", outline: "none" },
-  err: { color: "#ff6b6b", fontSize: 13, margin: "4px 0 10px" },
-  btnPrimary: { width: "100%", padding: 15, background: "linear-gradient(135deg,#00b894,#00d68f)", border: "none", borderRadius: 14, color: "#000", fontSize: 16, fontWeight: 700, cursor: "pointer", marginBottom: 10, marginTop: 6 },
-  btnGhost: { width: "100%", padding: 13, background: "transparent", border: "1px solid #1f2d44", borderRadius: 14, color: "#5a6a80", fontSize: 14, cursor: "pointer" },
-  topBar: { position: "fixed", top: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 480, background: "#0d1117", borderBottom: "1px solid #1f2d44", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 20px", zIndex: 100, boxSizing: "border-box" },
-  topLogo: { fontSize: 14, fontWeight: 800, letterSpacing: 2, color: "#00d68f" },
-  iconBtn: { background: "none", border: "none", cursor: "pointer", padding: 6, fontSize: 20 },
-  menuBtn: { background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex", flexDirection: "column", gap: 5 },
-  burger: { width: 24, height: 2, background: "#e8eaf0", borderRadius: 2 },
-  overlay: { position: "fixed", inset: 0, background: "#000a", zIndex: 200 },
-  drawer: { position: "absolute", right: 0, top: 0, bottom: 0, width: 280, background: "#0d1117", borderLeft: "1px solid #1f2d44", padding: 24, display: "flex", flexDirection: "column", gap: 6 },
-  drawerHeader: { display: "flex", gap: 14, alignItems: "center", marginBottom: 8 },
-  avatar: { width: 48, height: 48, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, fontSize: 20, color: "#000", flexShrink: 0 },
-  drawerName: { fontSize: 15, fontWeight: 700, color: "#e8eaf0" },
-  drawerLogin: { fontSize: 12, color: "#5a6a80" },
-  drawerBal: { fontSize: 16, fontWeight: 800, color: "#00d68f", marginTop: 4 },
-  drawerDivider: { height: 1, background: "#1f2d44", margin: "10px 0" },
-  drawerBtn: { display: "flex", alignItems: "center", gap: 12, padding: "13px 14px", borderRadius: 12, border: "none", background: "transparent", color: "#c8d0dc", fontSize: 15, cursor: "pointer" },
-  drawerBtnIcon: { fontSize: 20 },
-  drawerBtnLogout: { display: "flex", alignItems: "center", gap: 12, padding: "13px 14px", borderRadius: 12, border: "none", background: "transparent", color: "#ff6b6b", fontSize: 15, cursor: "pointer", marginTop: "auto" },
-  adminBadge: { background: "linear-gradient(135deg,#f9ca24,#f0932b)", color: "#000", fontSize: 9, fontWeight: 800, padding: "2px 6px", borderRadius: 20, marginLeft: 4 },
-  pageWrap: { paddingTop: 70, padding: "70px 16px 20px" },
-  pageTitle: { fontSize: 22, fontWeight: 800, marginBottom: 18, marginTop: 8 },
-  greeting: { fontSize: 20, fontWeight: 700, margin: "8px 0 16px" },
-  secTitle: { fontSize: 16, fontWeight: 700, margin: "16px 0 10px", color: "#c8d0dc" },
-  balCard: { background: "linear-gradient(135deg,#0a2a1e,#0d3326)", border: "1px solid #00d68f33", borderRadius: 20, padding: "24px 22px", marginBottom: 18 },
-  balLabel: { fontSize: 10, color: "#00d68f88", letterSpacing: 2, textTransform: "uppercase", marginBottom: 8 },
-  balAmt: { fontSize: 36, fontWeight: 900, color: "#00d68f", marginBottom: 14 },
-  balRow: { display: "flex", justifyContent: "space-between", color: "#5a8a70", fontSize: 13 },
-  quickRow: { display: "flex", gap: 10, marginBottom: 18 },
-  quickBtn: { flex: 1, background: "#111827", border: "1px solid #1f2d44", borderRadius: 14, padding: "14px 4px", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, cursor: "pointer" },
-  quickIcon: { fontSize: 22 }, quickLabel: { fontSize: 11, color: "#8899aa" },
-  earnCard: { background: "#111827", border: "1px solid #1f2d44", borderRadius: 18, padding: 18, marginBottom: 18 },
-  earnTop: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },
-  earnDesc: { fontSize: 12, color: "#5a6a80", marginTop: 4 },
-  earnCounter: { fontSize: 28, fontWeight: 900, color: "#f9ca24" },
-  earnMax: { fontSize: 14, color: "#5a6a80" },
-  earnBtn: { width: "100%", padding: "15px", background: "linear-gradient(135deg,#f9ca24,#f0932b)", border: "none", borderRadius: 14, fontSize: 16, fontWeight: 800, cursor: "pointer", color: "#000", transition: "transform .1s" },
-  earnOff: { background: "#1f2d44", color: "#5a6a80", cursor: "not-allowed" },
-  txCard: { background: "#111827", border: "1px solid #1f2d44", borderRadius: 16, overflow: "hidden", marginBottom: 16 },
-  txRow: { display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: "1px solid #1a2130", position: "relative" },
-  txBadge: { width: 36, height: 36, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 900, flexShrink: 0 },
-  txMeta: { flex: 1, minWidth: 0 },
-  txDesc: { fontSize: 14, color: "#c8d0dc", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  txDate: { fontSize: 11, color: "#5a6a80", marginTop: 2 },
-  txAmt: { fontSize: 13, fontWeight: 700, flexShrink: 0 },
-  empty: { color: "#5a6a80", padding: "20px", textAlign: "center", margin: 0 },
-  card: { background: "#111827", border: "1px solid #1f2d44", borderRadius: 18, padding: 20, marginBottom: 16 },
-  inp2: { width: "100%", padding: "13px 14px", background: "#0d1929", border: "1px solid #1f2d44", borderRadius: 10, color: "#e8eaf0", fontSize: 15, boxSizing: "border-box", outline: "none", marginBottom: 4 },
-  sel: { width: "100%", padding: "13px 14px", background: "#0d1929", border: "1px solid #1f2d44", borderRadius: 10, color: "#e8eaf0", fontSize: 15, outline: "none" },
-  hint: { fontSize: 13, color: "#5a6a80", margin: "10px 0 4px" },
-  calcBox: { background: "#0d1929", border: "1px solid #1f2d44", borderRadius: 10, padding: "11px 14px", margin: "10px 0", fontSize: 14, color: "#8899aa" },
-  stmtBar: { display: "flex", justifyContent: "space-between", color: "#5a6a80", fontSize: 13, marginBottom: 10 },
-  qrBtn: { padding: "13px 16px", background: "#1f2d44", border: "1px solid #2a3d54", borderRadius: 10, color: "#e8eaf0", fontSize: 18, cursor: "pointer", flexShrink: 0 },
-  creditCard: { background: "#111827", border: "1px solid #ff6b6b33", borderRadius: 16, padding: 18, marginBottom: 14 },
-  cardTopRow: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
-  cid: { fontSize: 11, color: "#5a6a80", fontFamily: "monospace" },
-  badge: { fontSize: 11, background: "#ff6b6b22", color: "#ff6b6b", padding: "3px 8px", borderRadius: 20 },
-  bigAmt: { fontSize: 24, fontWeight: 900, margin: "8px 0" },
-  cinfo: { display: "flex", justifyContent: "space-between", fontSize: 13, color: "#8899aa", marginBottom: 5 },
-  btnRed: { width: "100%", padding: "11px", background: "#ff6b6b22", border: "1px solid #ff6b6b44", borderRadius: 10, color: "#ff6b6b", fontSize: 14, cursor: "pointer", marginTop: 10 },
-  btnGreen: { width: "100%", padding: "11px", background: "#00d68f22", border: "1px solid #00d68f44", borderRadius: 10, color: "#00d68f", fontSize: 14, cursor: "pointer", marginTop: 10 },
-  virtualCard: { background: "linear-gradient(135deg,#1a1a2e,#16213e,#0f3460)", borderRadius: 20, padding: "24px 22px", marginBottom: 18, border: "1px solid #ffffff11" },
-  vcChip: { fontSize: 20, color: "#f9ca24", marginBottom: 16 },
-  vcNum: { fontSize: 18, fontFamily: "monospace", letterSpacing: 3, color: "#fff", marginBottom: 20 },
-  vcRow: { display: "flex", alignItems: "flex-end", gap: 20 },
-  vcLbl: { fontSize: 9, color: "#ffffff66", textTransform: "uppercase", letterSpacing: 1 },
-  vcName: { fontSize: 13, color: "#fff", fontWeight: 600 },
-  vcVisa: { marginLeft: "auto", fontSize: 18, fontStyle: "italic", fontWeight: 900, color: "#fff" },
-  bottomNav: { position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 480, background: "#0d1117", borderTop: "1px solid #1f2d44", display: "flex", zIndex: 100, boxSizing: "border-box" },
-  bottomBtn: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "10px 4px 14px", background: "none", border: "none", cursor: "pointer" },
-  bottomBtnActive: { borderTop: "2px solid #00d68f" },
-  bottomIcon: { fontSize: 20 }, bottomLabel: { fontSize: 10, color: "#5a6a80" },
-  modalOverlay: { position: "fixed", inset: 0, background: "#000c", zIndex: 300, display: "flex", alignItems: "flex-end" },
-  modal: { background: "#111827", border: "1px solid #1f2d44", borderRadius: "20px 20px 0 0", padding: 24, width: "100%", maxHeight: "80vh", overflowY: "auto" },
-  dotsBtn: { background: "none", border: "none", color: "#5a6a80", fontSize: 22, cursor: "pointer", padding: "0 4px", flexShrink: 0 },
-  adminDropdown: { position: "absolute", right: 12, top: 50, background: "#1a2535", border: "1px solid #2a3d54", borderRadius: 12, zIndex: 10, minWidth: 200, overflow: "hidden" },
-  adminDropItem: { display: "block", width: "100%", padding: "12px 16px", background: "none", border: "none", color: "#c8d0dc", fontSize: 14, cursor: "pointer", textAlign: "left" },
+  root: { minHeight: "100vh", background: "#0d0118", color: "#f3f4f6", fontFamily: "'Segoe UI',system-ui,sans-serif", maxWidth: 480, margin: "0 auto", position: "relative", overflow: "hidden" },
+  purpleGlow: { position: "fixed", width: 300, height: 300, borderRadius: "50%", background: "radial-gradient(circle,#7c3aed22,transparent 70%)", top: 0, left: "-50px", pointerEvents: "none", zIndex: 0 },
+  blueGlow: { position: "fixed", width: 250, height: 250, borderRadius: "50%", background: "radial-gradient(circle,#3b82f622,transparent 70%)", top: "30%", right: "-50px", pointerEvents: "none", zIndex: 0 },
+  loadBar: { position: "fixed", top: 0, left: 0, right: 0, height: 3, background: "linear-gradient(90deg,#7c3aed,#3b82f6,#ec4899)", zIndex: 9999, animation: "shimmer 1.5s infinite" },
+  topBar: { position: "fixed", top: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 480, background: "rgba(13,1,24,0.8)", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 20px", zIndex: 100, boxSizing: "border-box", backdropFilter: "blur(20px)" },
+  brand: { fontSize: 15, fontWeight: 900, letterSpacing: 2, background: "linear-gradient(135deg,#c084fc,#818cf8)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" },
+  iconBtn: { background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: "7px 10px", cursor: "pointer", fontSize: 16 },
+  menuBtn: { background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: "8px 10px", cursor: "pointer", display: "flex", flexDirection: "column", gap: 4 },
+  bun: { width: 20, height: 2, background: "#d1d5db", borderRadius: 2 },
+  body: { paddingTop: 68, padding: "68px 16px 16px", position: "relative", zIndex: 1 },
+
+  // Home
+  greeting: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", margin: "8px 0 20px" },
+  greetSub: { fontSize: 13, color: "#6b7280", marginBottom: 2 },
+  greetName: { fontSize: 26, fontWeight: 900, background: "linear-gradient(135deg,#f3f4f6,#c084fc)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" },
+  eyeBtn: { background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: "8px 10px", cursor: "pointer", fontSize: 16 },
+
+  balCard: { position: "relative", background: "linear-gradient(135deg,#1e1b4b,#312e81,#1e3a5f)", borderRadius: 24, padding: "28px 24px", marginBottom: 20, overflow: "hidden", boxShadow: "0 20px 60px #7c3aed33" },
+  balCardGlow: { position: "absolute", width: 200, height: 200, borderRadius: "50%", background: "radial-gradient(circle,#c084fc22,transparent 70%)", top: -50, right: -50, pointerEvents: "none" },
+  balTop: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 },
+  balCardLabel: { fontSize: 11, color: "rgba(255,255,255,0.5)", letterSpacing: 2, textTransform: "uppercase", marginBottom: 8 },
+  balCardAmt: { fontSize: 34, fontWeight: 900, color: "#fff", textShadow: "0 2px 20px #c084fc44" },
+  visaWrap: { background: "rgba(255,255,255,0.1)", borderRadius: 8, padding: "6px 12px", backdropFilter: "blur(10px)" },
+  visaText: { fontSize: 16, fontStyle: "italic", fontWeight: 900, color: "#fff" },
+  balCardBot: { display: "flex", justifyContent: "space-between" },
+  cardNum: { fontSize: 14, fontFamily: "monospace", letterSpacing: 2, color: "rgba(255,255,255,0.7)" },
+  cardExp: { fontSize: 13, color: "rgba(255,255,255,0.5)" },
+
+  qRow: { display: "flex", gap: 10, marginBottom: 20 },
+  qBtn: { flex: 1, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 16, padding: "14px 4px", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, cursor: "pointer", transition: "all .2s" },
+  qIcon: { fontSize: 22 },
+  qLab: { fontSize: 11, color: "#9ca3af", fontWeight: 500 },
+
+  earnCard: { position: "relative", background: "linear-gradient(135deg,#1f1229,#14213d)", border: "1px solid rgba(192,132,252,0.15)", borderRadius: 20, padding: 20, marginBottom: 20, overflow: "hidden" },
+  earnGlow: { position: "absolute", width: 150, height: 150, borderRadius: "50%", background: "radial-gradient(circle,#7c3aed22,transparent 70%)", top: -30, right: -30, pointerEvents: "none" },
+  earnHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },
+  earnTitle: { fontSize: 15, fontWeight: 700, color: "#e5e7eb" },
+  earnSub: { fontSize: 12, color: "#6b7280", marginTop: 3 },
+  earnProg: { display: "flex", alignItems: "baseline", gap: 2 },
+  earnProgVal: { fontSize: 28, fontWeight: 900, background: "linear-gradient(135deg,#c084fc,#818cf8)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" },
+  earnProgMax: { fontSize: 13, color: "#4b5563" },
+  earnBarWrap: { height: 4, background: "rgba(255,255,255,0.05)", borderRadius: 2, marginBottom: 14, overflow: "hidden" },
+  earnBar: { height: "100%", background: "linear-gradient(90deg,#7c3aed,#c084fc)", borderRadius: 2, transition: "width .3s" },
+  earnBtn: { width: "100%", padding: 14, background: "linear-gradient(135deg,#7c3aed,#c084fc)", border: "none", borderRadius: 14, fontSize: 15, fontWeight: 800, cursor: "pointer", color: "#fff", boxShadow: "0 4px 20px #7c3aed44", transition: "transform .1s" },
+  earnBtnOff: { background: "rgba(255,255,255,0.05)", color: "#4b5563", cursor: "not-allowed", boxShadow: "none" },
+
+  section: { marginBottom: 20 },
+  sectionTitle: { fontSize: 15, fontWeight: 700, color: "#9ca3af", marginBottom: 12 },
+  txList: { background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 20, overflow: "hidden" },
+  txItem: { display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", borderBottom: "1px solid rgba(255,255,255,0.04)" },
+  txDot: { width: 38, height: 38, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 900, flexShrink: 0 },
+  txDesc: { fontSize: 14, color: "#d1d5db", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  txDate: { fontSize: 11, color: "#4b5563", marginTop: 2 },
+  txAmt: { fontSize: 14, fontWeight: 700, flexShrink: 0 },
+  empty: { color: "#4b5563", padding: "24px", textAlign: "center", margin: 0 },
+
+  pageTitle: { fontSize: 22, fontWeight: 800, background: "linear-gradient(135deg,#f3f4f6,#c084fc)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", marginBottom: 20, marginTop: 4, display: "flex", alignItems: "center", gap: 10 },
+  formCard: { background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: 20, padding: 22, marginBottom: 16 },
+  formTitle: { fontSize: 15, fontWeight: 700, color: "#c084fc", marginBottom: 16 },
+  label: { fontSize: 11, color: "#6b7280", marginBottom: 6, marginTop: 14, textTransform: "uppercase", letterSpacing: 1 },
+  inp2: { width: "100%", padding: "13px 16px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, color: "#f3f4f6", fontSize: 15, boxSizing: "border-box", outline: "none", marginBottom: 4 },
+  sel: { width: "100%", padding: "13px 16px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, color: "#f3f4f6", fontSize: 15, outline: "none" },
+  calcBox: { background: "rgba(124,58,237,0.1)", border: "1px solid rgba(192,132,252,0.2)", borderRadius: 10, padding: "10px 14px", margin: "10px 0", fontSize: 14, color: "#a78bfa" },
+  balHint: { fontSize: 13, color: "#6b7280", margin: "10px 0 4px" },
+  primBtn: { width: "100%", padding: 14, background: "linear-gradient(135deg,#7c3aed,#3b82f6)", border: "none", borderRadius: 14, color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", marginTop: 12, boxShadow: "0 4px 20px #7c3aed33" },
+  primBtnGreen: { background: "linear-gradient(135deg,#059669,#10b981)", boxShadow: "0 4px 20px #10b98133" },
+  stmtMeta: { display: "flex", justifyContent: "space-between", color: "#6b7280", fontSize: 13, marginBottom: 12 },
+  qrSmall: { padding: "13px 14px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 12, color: "#f3f4f6", fontSize: 16, cursor: "pointer", flexShrink: 0 },
+
+  debtCard: { position: "relative", background: "linear-gradient(135deg,#1f0a0a,#2d1515)", border: "1px solid rgba(248,113,113,0.15)", borderRadius: 20, padding: 20, marginBottom: 14, overflow: "hidden" },
+  debtGlow: { position: "absolute", width: 120, height: 120, borderRadius: "50%", background: "radial-gradient(circle,#ef444422,transparent 70%)", top: -20, right: -20, pointerEvents: "none" },
+  debtTop: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
+  debtId: { fontSize: 11, color: "#6b7280", fontFamily: "monospace" },
+  debtBadge: { fontSize: 11, background: "#ef444422", color: "#f87171", padding: "3px 10px", borderRadius: 20 },
+  debtAmt: { fontSize: 26, fontWeight: 900, margin: "8px 0 12px", color: "#f3f4f6" },
+  debtRow: { display: "flex", justifyContent: "space-between", fontSize: 13, color: "#9ca3af", marginBottom: 6 },
+  debtProg: { height: 4, background: "rgba(255,255,255,0.05)", borderRadius: 2, margin: "12px 0", overflow: "hidden" },
+  debtProgBar: { height: "100%", background: "linear-gradient(90deg,#ef4444,#f87171)", borderRadius: 2 },
+  debtBtn: { width: "100%", padding: 12, background: "#ef444422", border: "1px solid #ef444444", borderRadius: 12, color: "#f87171", fontSize: 14, cursor: "pointer", marginTop: 4, fontWeight: 600 },
+
+  savCard: { position: "relative", background: "linear-gradient(135deg,#052017,#053322)", border: "1px solid rgba(16,185,129,0.15)", borderRadius: 20, padding: 20, marginBottom: 14, overflow: "hidden" },
+  savGlow: { position: "absolute", width: 120, height: 120, borderRadius: "50%", background: "radial-gradient(circle,#10b98122,transparent 70%)", top: -20, right: -20, pointerEvents: "none" },
+
+  card3d: { position: "relative", background: "linear-gradient(135deg,#1e1b4b,#312e81,#0f172a)", borderRadius: 24, padding: "28px 24px", marginBottom: 20, overflow: "hidden", boxShadow: "0 20px 60px #0009, inset 0 1px 0 rgba(255,255,255,0.1)" },
+  card3dGlow: { position: "absolute", width: 200, height: 200, borderRadius: "50%", background: "radial-gradient(circle,#c084fc22,transparent 70%)", top: -50, right: -50 },
+  chipRow: { marginBottom: 24 },
+  chip: { width: 42, height: 32, background: "linear-gradient(135deg,#fbbf24,#f59e0b)", borderRadius: 6, boxShadow: "inset 0 1px 0 rgba(255,255,255,0.3)" },
+  cardNumBig: { fontSize: 19, fontFamily: "monospace", letterSpacing: 3, color: "#fff", marginBottom: 24, textShadow: "0 2px 10px #0006" },
+  cardBot: { display: "flex", alignItems: "flex-end", gap: 24 },
+  cardMiniLabel: { fontSize: 9, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: 1 },
+  cardMiniVal: { fontSize: 13, color: "#fff", fontWeight: 600, marginTop: 2 },
+  cardVisaBig: { marginLeft: "auto", fontSize: 22, fontStyle: "italic", fontWeight: 900, color: "#fff", textShadow: "0 2px 10px #0006" },
+  infoRow: { display: "flex", justifyContent: "space-between", padding: "12px 0", borderBottom: "1px solid rgba(255,255,255,0.04)" },
+  infoKey: { color: "#6b7280", fontSize: 14 },
+  infoVal: { color: "#f3f4f6", fontWeight: 600, fontSize: 14 },
+
+  nav: { position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 480, background: "rgba(13,1,24,0.9)", borderTop: "1px solid rgba(255,255,255,0.06)", display: "flex", zIndex: 100, boxSizing: "border-box", backdropFilter: "blur(20px)", paddingBottom: "env(safe-area-inset-bottom)" },
+  navBtn: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "10px 4px 12px", background: "none", border: "none", cursor: "pointer" },
+  navBtnOn: { borderTop: "2px solid #c084fc" },
+  navIc: { fontSize: 20 },
+  navLb: { fontSize: 10, fontWeight: 500 },
+
   tabRow: { display: "flex", gap: 8, marginBottom: 16 },
-  tabBtn: { flex: 1, padding: "10px", background: "#111827", border: "1px solid #1f2d44", borderRadius: 12, color: "#5a6a80", fontSize: 14, cursor: "pointer" },
-  tabBtnActive: { background: "#00d68f18", border: "1px solid #00d68f44", color: "#00d68f" },
-  adminActionBtn: { flex: 1, minWidth: "45%", padding: "11px 8px", border: "1px solid", borderRadius: 10, fontSize: 13, cursor: "pointer", marginBottom: 8, fontWeight: 600 },
+  tabBtn: { flex: 1, padding: "11px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, color: "#6b7280", fontSize: 14, cursor: "pointer", fontWeight: 600 },
+  tabOn: { background: "linear-gradient(135deg,#7c3aed22,#3b82f622)", border: "1px solid rgba(192,132,252,0.3)", color: "#c084fc" },
+  adminActBtn: { flex: 1, minWidth: "30%", padding: "11px 8px", borderRadius: 10, fontSize: 13, cursor: "pointer", marginBottom: 8, fontWeight: 600 },
+  divider: { height: 1, background: "rgba(255,255,255,0.06)", margin: "14px 0" },
+
+  userList: { background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)", borderRadius: 20, overflow: "hidden" },
+  userRow: { display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: "1px solid rgba(255,255,255,0.04)", position: "relative" },
+  uAva: { width: 40, height: 40, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, fontSize: 16, color: "#fff", flexShrink: 0 },
+  uName: { fontSize: 14, fontWeight: 600, color: "#e5e7eb" },
+  uMeta: { fontSize: 11, color: "#4b5563", marginTop: 2 },
+  uBal: { fontSize: 13, fontWeight: 700, color: "#c084fc", flexShrink: 0 },
+  adminPill2: { background: "linear-gradient(135deg,#f59e0b,#ef4444)", color: "#fff", fontSize: 9, fontWeight: 800, padding: "2px 6px", borderRadius: 20, marginLeft: 4, verticalAlign: "middle" },
+  dotsBtn: { background: "none", border: "none", color: "#4b5563", fontSize: 22, cursor: "pointer", padding: "0 4px", flexShrink: 0 },
+  drop: { position: "absolute", right: 12, top: 52, background: "#1a0533", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 16, zIndex: 10, minWidth: 200, overflow: "hidden", boxShadow: "0 20px 60px #000a", backdropFilter: "blur(20px)" },
+  dropItem: { display: "block", width: "100%", padding: "12px 16px", background: "none", border: "none", fontSize: 14, cursor: "pointer", textAlign: "left", borderBottom: "1px solid rgba(255,255,255,0.04)" },
 };
