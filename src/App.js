@@ -268,37 +268,24 @@ export default function App() {
 
   // Запущено приложение
   if (activeApp) {
-    const Component = activeApp.component;
-    return (
-      <div style={{ position: "fixed", inset: 0, zIndex: 100, animation: "slideIn 0.3s ease" }}>
-        {/* Кнопка назад в магазин */}
-        <div style={{
-          position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 200,
-          display: "flex", alignItems: "center",
-          padding: "10px 16px",
-          background: "rgba(8,6,15,0.85)",
-          backdropFilter: "blur(20px)",
-          borderBottom: "1px solid #2a2040",
-        }}>
-          <button onClick={() => setActiveApp(null)} style={{
-            display: "flex", alignItems: "center", gap: 6,
-            background: "none", border: "none", color: "#a78bfa",
-            cursor: "pointer", fontSize: 13, fontWeight: 700,
-            fontFamily: "'Syne', sans-serif", padding: "4px 8px",
-          }}>
-            ← ZRQ Store
-          </button>
-          <div style={{ flex: 1, textAlign: "center", fontSize: 13, fontWeight: 700, color: "#ede9fe" }}>
-            {activeApp.icon} {activeApp.name}
-          </div>
-          <div style={{ width: 80 }} />
-        </div>
-        <div style={{ height: "100%" }}>
-          <Component />
-        </div>
-      </div>
-    );
-  }
+  const Component = activeApp.component;
+  return (
+    <>
+      <Component />
+      <button
+        onClick={() => setActiveApp(null)}
+        style={{
+          position: "fixed", bottom: 80, right: 16, zIndex: 9999,
+          width: 48, height: 48, borderRadius: "50%",
+          background: "linear-gradient(135deg, #8b5cf6, #6d28d9)",
+          border: "none", color: "#fff", fontSize: 20,
+          cursor: "pointer", boxShadow: "0 4px 20px #8b5cf660",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}
+      >⌂</button>
+    </>
+  );
+          }
 
   const filtered = APPS.filter(a =>
     !search || a.name.toLowerCase().includes(search.toLowerCase()) || a.category.toLowerCase().includes(search.toLowerCase())
