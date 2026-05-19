@@ -1,6 +1,5 @@
 /* eslint-disable */
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { useState } from "react";
 import ZRQSplash from "./ZRQSplash";
 
 const SUPABASE_URL = "https://gvorwmwsurbkdlozxnel.supabase.co";
