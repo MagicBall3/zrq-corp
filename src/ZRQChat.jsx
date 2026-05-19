@@ -365,7 +365,6 @@ export default function ZRQChat() {
     return d.toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" });
   };
 
-  if (splash) return <ZRQSplash onDone={() => setSplash(false)} />;
   if (!user) return <AuthScreen onLogin={u => setUser(u)} />;
 
   return (
