@@ -373,7 +373,7 @@ export default function ZRQChat() {
   return (
     <>
       <style>{css}</style>
-      <div style={{ display: "flex", height: "100vh", background: C.bg, overflow: "hidden" }}>
+      <div style={{ display: "flex", height: "100dvh", background: C.bg, overflow: "hidden" }}>
 
         {/* Sidebar */}
         <div style={{
