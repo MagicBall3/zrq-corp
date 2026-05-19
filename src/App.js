@@ -273,7 +273,7 @@ export default function App() {
       <div style={{ position: "fixed", inset: 0, zIndex: 100, animation: "slideIn 0.3s ease" }}>
         {/* Кнопка назад в магазин */}
         <div style={{
-          position: "fixed", top: 0, left: 0, right: 0, zIndex: 200,
+          position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 200,
           display: "flex", alignItems: "center",
           padding: "10px 16px",
           background: "rgba(8,6,15,0.85)",
