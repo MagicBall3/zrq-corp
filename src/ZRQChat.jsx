@@ -350,13 +350,17 @@ export default function ZRQChat() {
   };
 
   const getRoomDisplay = (room) => {
-    if (room.is_group) return { name: room.name, avatar: room.name[0].toUpperCase(), color: "#8b5cf6" };
-    const colors = ["#8b5cf6","#6366f1","#ec4899","#f59e0b","#10b981","#3b82f6"];
-    const otherName = room.name === user?.username ? room.other_user || room.name : room.name;
-    const c = colors[otherName.charCodeAt(0) % colors.length];
-    return { name: otherName, avatar: otherName[0].toUpperCase(), color: c };
-  };
-
+  if (room.is_group) return { name: room.name, avatar: room.name[0].toUpperCase(), color: "#8b5cf6" };
+  const colors = ["#8b5cf6","#6366f1","#ec4899","#f59e0b","#10b981","#3b82f6"];
+  let displayName = room.name;
+  if (room.name.includes("__")) {
+    const parts = room.name.split("__");
+    displayName = parts[0] === user?.username ? parts[1] : parts[0];
+  }
+  const c = colors[displayName.charCodeAt(0) % colors.length];
+  return { name: displayName, avatar: displayName[0].toUpperCase(), color: c };
+};
+  
   const formatTime = (ts) => {
     if (!ts) return "";
     const d = new Date(ts);
