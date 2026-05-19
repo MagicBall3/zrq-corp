@@ -130,6 +130,8 @@ const P = {
 
 // ── APP ───────────────────────────────────────────────────────────────────────
 export default function App() {
+  const [splash, setSplash] = useState(true);
+  if (splash) return <ZRQSplash onDone={() => setSplash(false)} />;
   const [session, setSession] = useState(() => { try { return JSON.parse(localStorage.getItem("qb_session")); } catch { return null; } });
   const [user, setUser] = useState(null);
   const [page, setPage] = useState("home");
