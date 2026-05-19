@@ -462,7 +462,7 @@ export default function ZRQChat() {
           {activeRoom ? (
             <>
               {/* Chat header */}
-              <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 12, background: C.surface }}>
+              <div style={{ padding: "16px 16px 12px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 12, background: C.surface, position: "sticky", top: 0, zIndex: 10 }}>
                 <button onClick={() => setActiveRoom(null)} style={{ background: "none", border: "none", color: C.textLow, cursor: "pointer", fontSize: 20, padding: "0 4px" }}>←</button>
                 {(() => { const d = getRoomDisplay(activeRoom); return (
                   <>
