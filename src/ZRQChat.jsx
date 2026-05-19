@@ -247,7 +247,7 @@ function NewChatModal({ currentUser, onClose, onCreated }) {
                 </div>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{u.username}</div>
-                  {u.name && u.name !== u.username && <div style={{ fontSize: 11, color: C.textLow }}>{u.name}</div>}
+                  {u.fullname && u.fullname !== u.username && <div style={{ fontSize: 11, color: C.textLow }}>{u.fullname}</div>}
                 </div>
               </div>
             );
