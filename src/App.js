@@ -404,6 +404,7 @@ export default function App() {
   const isAdmin = user?.is_admin || user?.username === ADMIN_USERNAME;
 
   // ── AUTH SCREEN ───────────────────────────────────────────────────────────
+  if (splash) return <ZRQSplash duration={4000} onDone={() => setSplash(false)} />;
   if (!session || !user) return (
     <div style={A.root}>
       <div style={A.bg1} /><div style={A.bg2} /><div style={A.bg3} />
