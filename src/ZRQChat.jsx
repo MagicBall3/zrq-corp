@@ -176,7 +176,7 @@ function NewChatModal({ currentUser, onClose, onCreated }) {
     if (!targets?.length) { setLoading(false); return; }
 
     const isGroup = groupMode && selected.length > 1;
-    const name = isGroup ? groupName || selected.map(u => u.username).join(", ") : targets[0].username;
+    const name = isGroup ? groupName || selected.map(u => u.username).join(", ") : `${currentUser.username}__${targets[0].username}`;
 
     const room = await api("zrq_rooms", { method: "POST", body: JSON.stringify({ name, is_group: isGroup }) });
     if (!room?.length) { setLoading(false); return; }
