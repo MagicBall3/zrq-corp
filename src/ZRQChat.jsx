@@ -160,7 +160,7 @@ function NewChatModal({ currentUser, onClose, onCreated }) {
   useEffect(() => {
     if (!search.trim()) { setResults([]); return; }
     const t = setTimeout(async () => {
-      const users = await api(`users?username=ilike.*${search}*&select=username,name&limit=8`);
+      const users = await api(`users?or=(username.ilike.*${search}*,fullname.ilike.*${search}*)&select=username,fullname&limit=8`);
       setResults((users || []).filter(u => u.username !== currentUser.username));
     }, 300);
     return () => clearTimeout(t);
