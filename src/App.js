@@ -293,7 +293,7 @@ export default function App() {
           </div>
           <div style={{ width: 80 }} />
         </div>
-        <div style={{ paddingTop: 44, height: "100%" }}>
+        <div style={{ height: "100%" }}>
           <Component />
         </div>
       </div>
