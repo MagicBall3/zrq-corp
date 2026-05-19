@@ -267,7 +267,6 @@ function NewChatModal({ currentUser, onClose, onCreated }) {
 
 // ─── MAIN APP ────────────────────────────────────────────────────────────────
 export default function ZRQChat() {
-  const [splash, setSplash] = useState(true);
   const [user, setUser] = useState(null);
   const [rooms, setRooms] = useState([]);
   const [activeRoom, setActiveRoom] = useState(null);
