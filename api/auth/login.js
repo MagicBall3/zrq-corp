@@ -30,8 +30,14 @@ module.exports = async function handler(req, res) {
   if (!user) return res.status(401).json({ error: 'Пользователь не найден' });
   if (user.is_blocked) return res.status(403).json({ error: 'Аккаунт заблокирован' });
 
-  const valid = await bcrypt.compare(password, user.password_hash);
-  if (!valid) return res.status(401).json({ error: 'Неверный пароль' });
+  // Проверяем bcrypt хеш ИЛИ старый открытый пароль
+let valid = false;
+if (user.password_hash.startsWith('$2')) {
+  valid = await bcrypt.compare(password, user.password_hash);
+} else {
+  valid = (password === user.password_hash);
+}
+if (!valid) return res.status(401).json({ error: 'Неверный пароль' });
 
   const token = jwt.sign(
     { id: user.id, username: user.username, is_admin: user.is_admin },
